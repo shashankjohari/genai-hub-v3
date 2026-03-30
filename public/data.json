@@ -1,0 +1,336 @@
+{
+  "ucs": [
+    {
+      "id": "1",
+      "spId": 1,
+      "title": "Test Use Case",
+      "dept": "Technology",
+      "domain": "technology",
+      "pillar": "speed",
+      "status": "Live",
+      "impact": "90% faster",
+      "summary": "This is a test use case",
+      "outcomes": [],
+      "fromTime": "",
+      "toTime": "",
+      "fromSteps": [],
+      "toSteps": [],
+      "financial": [],
+      "operational": [],
+      "governance": [],
+      "impactBadges": null
+    },
+    {
+      "id": "2",
+      "spId": 2,
+      "title": "Cyber underwriting assistant",
+      "dept": "Underwriting",
+      "domain": "business",
+      "pillar": "speed",
+      "status": "Live",
+      "impact": "65% faster · 55% more bound",
+      "summary": "GenAI solution streamlining cyber insurance quote generation — automating submission intake, risk assessment and prioritisation.",
+      "outcomes": [
+        "~65% reduction in time-to-quote",
+        "100% submissions assessed — zero leakage",
+        "55% increase in bound policies NA · 43% EO"
+      ],
+      "fromTime": "3–5 days",
+      "toTime": "<1 hr",
+      "fromSteps": [
+        "Broker submits via email or portal",
+        "Underwriter manually reviews documents",
+        "Risk data keyed into system manually",
+        "Judgment applied to price and assess",
+        "Quote issued — avg. 3–5 days"
+      ],
+      "toSteps": [
+        {
+          "l": "Broker submission received",
+          "a": false
+        },
+        {
+          "l": "AI extracts and structures risk data",
+          "a": true
+        },
+        {
+          "l": "Risk scoring agent assesses exposure vs. appetite",
+          "a": true
+        },
+        {
+          "l": "Quote recommendation with rationale generated",
+          "a": true
+        },
+        {
+          "l": "Underwriter reviews and issues quote",
+          "a": false
+        }
+      ],
+      "financial": [
+        "~$3.2M NB GWP uplift for NA Cyber",
+        "~$6.1M NB GWP uplift for EO Cyber",
+        "Investment: $2.8M NA · $1.6M EO"
+      ],
+      "operational": [
+        "~65% reduction in time-to-quote",
+        "100% submissions assessed",
+        "55% bound policies increase NA"
+      ],
+      "governance": [
+        "Consistent risk selection criteria",
+        "Full audit trail of AI vs. underwriter decisions",
+        "Documented pricing rationale"
+      ],
+      "impactBadges": [
+        {
+          "l": "Time-to-quote",
+          "d": "down"
+        },
+        {
+          "l": "Bound policies",
+          "d": "up"
+        },
+        {
+          "l": "Submission throughput",
+          "d": "up"
+        },
+        {
+          "l": "NB GWP revenue",
+          "d": "up"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "spId": 3,
+      "title": "Q-GPT",
+      "dept": "Enterprise AI platform",
+      "domain": "business",
+      "pillar": "quality",
+      "status": "Live",
+      "impact": "75% effort reduction",
+      "summary": "QBE's managed, secure interface to ChatGPT capabilities — delivering governed, persona-based AI across 2,237 users spanning 912 business teams.",
+      "outcomes": [
+        "75% effort reduction for Legal, Risk & Data Science",
+        "2,237 active users across 912 teams",
+        "Secure data estate — no public ChatGPT dependency"
+      ],
+      "fromTime": "Manual / unsecured",
+      "toTime": "Instant / governed",
+      "fromSteps": [
+        "Employee uses public ChatGPT",
+        "Sensitive documents uploaded to unsecured LLM",
+        "No prompt standardisation or governance",
+        "No audit trail",
+        "Data privacy risk unmanaged"
+      ],
+      "toSteps": [
+        {
+          "l": "Employee accesses Q-GPT — secure QBE interface",
+          "a": false
+        },
+        {
+          "l": "Azure GPT-4o ingests documents within QBE network",
+          "a": true
+        },
+        {
+          "l": "Persona-based experience surfaces role-relevant prompts",
+          "a": true
+        },
+        {
+          "l": "Curated prompt library ensures quality outputs",
+          "a": true
+        },
+        {
+          "l": "Audit trails and access controls enforced",
+          "a": false
+        }
+      ],
+      "financial": [
+        "75% effort reduction for Legal, Risk & Data Science",
+        "Eliminates cost and risk of unsanctioned LLM usage"
+      ],
+      "operational": [
+        "~2,237 users across 912 business teams",
+        "Precise data insights from ingested documents"
+      ],
+      "governance": [
+        "Secure data estate — no public ChatGPT dependency",
+        "Centralised model lifecycle management with audit trails"
+      ],
+      "impactBadges": [
+        {
+          "l": "Effort for Legal, Risk & DS",
+          "d": "down"
+        },
+        {
+          "l": "Data security & compliance",
+          "d": "up"
+        },
+        {
+          "l": "Enterprise AI adoption",
+          "d": "up"
+        },
+        {
+          "l": "Response turnaround",
+          "d": "down"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "spId": 4,
+      "title": "EventOps agent",
+      "dept": "Technology ops",
+      "domain": "technology",
+      "pillar": "cost",
+      "status": "Live",
+      "impact": "5 hrs → 0.5 hr",
+      "summary": "Agentic AI ingesting, deduplicating, correlating and root-cause-analysing events across monitoring platforms — cutting mean diagnosis time from 5 hours to 30 minutes.",
+      "outcomes": [
+        "90% reduction in diagnosis time",
+        "20–30% cut in IT support cost",
+        "Fewer P1/P2 escalations"
+      ],
+      "fromTime": "5 hrs",
+      "toTime": "0.5 hr",
+      "fromSteps": [
+        "Alerts generated across multiple monitoring platforms",
+        "Manual correlation to identify true events",
+        "Manual diagnostic across Alert Center, Dynatrace",
+        "Manual drill-down and RCA with limited automation",
+        "Finalise RCA and execute corrective actions"
+      ],
+      "toSteps": [
+        {
+          "l": "Events ingested from monitoring tools",
+          "a": false
+        },
+        {
+          "l": "Deduplication & categorisation agent removes duplicates",
+          "a": true
+        },
+        {
+          "l": "Correlation & clustering agent groups events into problems",
+          "a": true
+        },
+        {
+          "l": "RCA agent generates summaries and actionable insights",
+          "a": true
+        },
+        {
+          "l": "Core team confirms RCA and executes remediation",
+          "a": false
+        }
+      ],
+      "financial": [
+        "Improved engineering productivity via automated RCA",
+        "Reduces downtime revenue impact by 10–20%",
+        "Cuts IT support cost by 20–30%"
+      ],
+      "operational": [
+        "Fewer P1/P2 escalations by preventing missed alerts",
+        "Faster diagnosis and proactive risk management",
+        "Cuts diagnosis time by 25–35%"
+      ],
+      "governance": [
+        "Standardised and repeatable incident investigation process",
+        "Better accountability through centralised event intelligence"
+      ],
+      "impactBadges": [
+        {
+          "l": "Service availability",
+          "d": "up"
+        },
+        {
+          "l": "Operation cost & MTTR",
+          "d": "down"
+        },
+        {
+          "l": "Event correlation / KB articles",
+          "d": "up"
+        },
+        {
+          "l": "Ticket volume",
+          "d": "down"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "spId": 5,
+      "title": "Smart capacity",
+      "dept": "Technology ops",
+      "domain": "technology",
+      "pillar": "speed",
+      "status": "Live",
+      "impact": "90 hrs → 5 hrs",
+      "summary": "Agentic AI pulling raw capacity data from Storage, Backup and VMware, synthesising utilisation insights, forecasting consumption and auto-raising ServiceNow tickets.",
+      "outcomes": [
+        "94% reduction in manual effort",
+        "Proactive forecasting replaces reactive firefighting",
+        "Automated ServiceNow ticketing with owner assignment"
+      ],
+      "fromTime": "90 hrs",
+      "toTime": "5 hrs",
+      "fromSteps": [
+        "RAW data extracted manually from Storage, Backup, VMware",
+        "ServiceNow team manually collates into a single file",
+        "Capacity team manually analyses usage and plans actions",
+        "Team defines plan, actions assessment and publishes reports"
+      ],
+      "toSteps": [
+        {
+          "l": "RAW capacity data pulled from Storage, Backup, VMware",
+          "a": false
+        },
+        {
+          "l": "Network Capacity Analyser collates data and derives % usage",
+          "a": true
+        },
+        {
+          "l": "Forecasting agent predicts consumption and sets thresholds",
+          "a": true
+        },
+        {
+          "l": "Ticketing agent creates ServiceNow ticket and assigns owner",
+          "a": true
+        },
+        {
+          "l": "Capacity team actions ticket and publishes report",
+          "a": false
+        }
+      ],
+      "financial": [
+        "License cost optimisation and OpEx reduction",
+        "Improved FTE productivity from reduced manual effort"
+      ],
+      "operational": [
+        "Reduced availability risk and fewer outages",
+        "Faster decision-making and issue visibility"
+      ],
+      "governance": [
+        "Chatbot-enabled self-service reporting",
+        "Centralised visibility and auditability"
+      ],
+      "impactBadges": [
+        {
+          "l": "Efficiency & availability",
+          "d": "up"
+        },
+        {
+          "l": "License & storage costs",
+          "d": "down"
+        },
+        {
+          "l": "Risk mitigation",
+          "d": "up"
+        },
+        {
+          "l": "Auditability",
+          "d": "up"
+        }
+      ]
+    }
+  ]
+}
