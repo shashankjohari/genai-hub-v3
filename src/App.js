@@ -10,39 +10,27 @@ const SP_LIST = "QBEAIPortal";
 const SP_API  = `${SP_SITE}/_api/lists/getbytitle('${SP_LIST}')/items`;
 const SP_HDR  = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose" };
 
-// ── SHAREPOINT HELPERS ────────────────────────────────────────────────────
-async function spDigest() {
-  const r = await fetch(`${SP_SITE}/_api/contextinfo`, { method: "POST", headers: { "Accept": "application/json;odata=verbose" }, credentials: "include" });
-  const d = await r.json();
-  return d.d.GetContextWebInformation.FormDigestValue;
-}
+// ── GITHUB CONFIG (Enterprise) ─────────────────────────────────────────────
+const GH_REPO   = "GHESandbox/194426_QBE";
+const GH_API    = `https://github.com/GHESandbox/194426_QBE`;
+const DATA_PATH = "public/data.json";
 
-async function spLoadAll() {
-  const r = await fetch(`${SP_API}?$top=500`, { headers: { "Accept": "application/json;odata=verbose" }, credentials: "include" });
-  const d = await r.json();
-  return (d.d?.results || []).map(spToUC);
-}
-
-async function spCreate(uc) {
-  const digest = await spDigest();
-  const body = ucToSP(uc);
-  const r = await fetch(SP_API, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest }, credentials: "include", body: JSON.stringify(body) });
-  if (!r.ok) throw new Error("SP create failed: " + r.status);
-  const d = await r.json();
-  return d.d.Id;
-}
-
-async function spUpdate(spId, uc) {
-  const digest = await spDigest();
-  const body = ucToSP(uc);
-  const r = await fetch(`${SP_API}(${spId})`, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest, "IF-MATCH": "*", "X-HTTP-Method": "MERGE" }, credentials: "include", body: JSON.stringify(body) });
-  if (!r.ok) throw new Error("SP update failed: " + r.status);
-}
-
-async function spDelete(spId) {
-  const digest = await spDigest();
-  const r = await fetch(`${SP_API}(${spId})`, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest, "IF-MATCH": "*", "X-HTTP-Method": "DELETE" }, credentials: "include" });
-  if (!r.ok) throw new Error("SP delete failed: " + r.status);
+async function pushDataJson(updatedUcs) {
+  const res = await fetch(
+    `https://api.github.com/repos/${GH_REPO}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        event_type: "sync-data",
+        client_payload: { ucs: updatedUcs },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error("Dispatch failed: " + res.status);
 }
 
 function spToUC(item) {
@@ -322,17 +310,17 @@ export default function App() {
   useEffect(() => {
     if (!authed) return;
     setSpLoading(true); setSpError(null);
-    spLoadAll().then(spUcs => {
-      if (spUcs.length > 0) {
-        const spTitles = new Set(spUcs.map(u => u.title.toLowerCase()));
+    fetch(process.env.PUBLIC_URL + "/data.json").then(r => r.json()).then(data => {
+      if (data?.ucs?.length > 0) {
+        const spTitles = new Set(data.ucs.map(u => u.title.toLowerCase()));
         const localOnly = INIT_UCS.filter(u => !spTitles.has(u.title.toLowerCase()));
-        setUcs([...spUcs, ...localOnly]);
+        setUcs([...data.ucs, ...localOnly]);
         setSpStatus("synced");
       }
       setSpLoading(false);
     }).catch(err => {
-      console.error("SharePoint load failed:", err);
-      setSpError("Could not load from SharePoint — showing local fallback.");
+      console.error("data.json load failed:", err);
+      setSpError("Could not load data — showing local fallback.");
       setSpStatus("error"); setSpLoading(false);
     });
   }, [authed]);
@@ -399,18 +387,13 @@ export default function App() {
   const saveUC = async uc => {
     if (!isAdmin) return;
     setSpStatus("saving");
+    let finalUcs;
     try {
-      if (uc.spId) {
-        await spUpdate(uc.spId, uc);
-        const n = [...ucs]; const i = n.findIndex(u => u.id === uc.id); if (i >= 0) n[i] = uc;
-        setUcs(n);
-      } else {
-        const newSpId = await spCreate(uc);
-        const saved = { ...uc, spId: newSpId, id: newSpId.toString() };
-        const i = ucs.findIndex(u => u.id === uc.id);
-        if (i >= 0) { const n = [...ucs]; n[i] = saved; setUcs(n); }
-        else { setUcs([...ucs, saved]); }
-      }
+      const i = ucs.findIndex(u => u.id === uc.id);
+      if (i >= 0) { const n = [...ucs]; n[i] = uc; finalUcs = n; }
+      else { finalUcs = [...ucs, uc]; }
+      setUcs(finalUcs);
+      await pushDataJson(finalUcs);
       setSpStatus("synced");
     } catch (err) {
       console.error("Save error:", err);
@@ -422,10 +405,11 @@ export default function App() {
   const deleteUC = async id => {
     if (!isAdmin) return;
     setSpStatus("saving");
+    let finalUcs;
     try {
-      const uc = ucs.find(u => u.id === id);
-      if (uc?.spId) await spDelete(uc.spId);
-      setUcs(ucs.filter(u => u.id !== id));
+      finalUcs = ucs.filter(u => u.id !== id);
+      setUcs(finalUcs);
+      await pushDataJson(finalUcs);
       setSpStatus("synced");
     } catch (err) {
       console.error("Delete error:", err);
