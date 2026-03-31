@@ -1,50 +1,33 @@
-{
-  "name": "genai-hub-v3",
-  "version": "0.1.0",
-  "private": true,
-  "homepage": "https://ideal-carnival-k5qek71.pages.github.io",
-  "proxy": "http://localhost:3003",
-  "dependencies": {
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^13.5.0",
-    "express": "^4.18.2",
-    "node-fetch": "^2.7.0",
-    "dotenv": "^16.3.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-scripts": "5.0.1",
-    "web-vitals": "^2.1.4"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "serve-api": "node server.js",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d build -r https://github.com/GHESandbox/194426_QBE.git -b gh-pages"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  }
-}
+import { useState, useMemo, useRef, useEffect } from "react";
+
+const PASSWORD   = "AccentureAI@$rini2025";
+const ADMIN_PIN  = "QBE@Admin2025";
+
+// ── SHAREPOINT CONFIG ─────────────────────────────────────────────────────
+const SP_SITE = "https://ts.accenture.com/sites/TheInnovationNest-nurturingideasintosolutions";
+const DATA_URL = process.env.PUBLIC_URL + "/data.json";
+const SP_LIST = "QBEAIPortal";
+const SP_API  = `${SP_SITE}/_api/lists/getbytitle('${SP_LIST}')/items`;
+const SP_HDR  = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose" };
+
+// ── GITHUB CONFIG (Enterprise) ─────────────────────────────────────────────
+const GH_REPO   = "GHESandbox/194426_QBE";
+const GH_API    = `https://github.com/GHESandbox/194426_QBE`;
+const DATA_PATH = "public/data.json";
+
+async function pushDataJson(updatedUcs) {
+  const res = await fetch(
+    `https://api.github.com/repos/${GH_REPO}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        event_type: "sync-data",
+        client_payload: { ucs: updatedUcs },
+      }),
     }
   );
   if (!res.ok) throw new Error("Dispatch failed: " + res.status);

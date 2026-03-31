@@ -3,26 +3,12 @@ import { useState, useMemo, useRef, useEffect } from "react";
 const PASSWORD   = "AccentureAI@$rini2025";
 const ADMIN_PIN  = "QBE@Admin2025";
 
-// ── GITHUB CONFIG (Enterprise) ─────────────────────────────────────────────
-const GH_REPO   = "GHESandbox/194426_QBE";
-const GH_API    = `https://github.com/GHESandbox/194426_QBE`;
-const DATA_PATH = "public/data.json";
-// TODO: Use environment variable for token (never commit tokens to code!)
-const GH_TOKEN  = process.env.REACT_APP_GH_TOKEN || localStorage.getItem("gh_token");
-
-async function pushDataJson(updatedUcs) {
-  const res = await fetch("/api/push-data", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ ucs: updatedUcs }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => null);
-    throw new Error("Dispatch failed: " + res.status + " " + JSON.stringify(err));
-  }
-}
+// ── SHAREPOINT CONFIG ─────────────────────────────────────────────────────
+const SP_SITE = "https://ts.accenture.com/sites/TheInnovationNest-nurturingideasintosolutions";
+const DATA_URL = process.env.PUBLIC_URL + "/data.json";
+const SP_LIST = "QBEAIPortal";
+const SP_API  = `${SP_SITE}/_api/lists/getbytitle('${SP_LIST}')/items`;
+const SP_HDR  = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose" };
 
 // ── SHAREPOINT HELPERS ────────────────────────────────────────────────────
 async function spDigest() {
@@ -413,21 +399,18 @@ export default function App() {
   const saveUC = async uc => {
     if (!isAdmin) return;
     setSpStatus("saving");
-    let finalUcs;
     try {
       if (uc.spId) {
         await spUpdate(uc.spId, uc);
         const n = [...ucs]; const i = n.findIndex(u => u.id === uc.id); if (i >= 0) n[i] = uc;
-        finalUcs = n;
+        setUcs(n);
       } else {
         const newSpId = await spCreate(uc);
         const saved = { ...uc, spId: newSpId, id: newSpId.toString() };
         const i = ucs.findIndex(u => u.id === uc.id);
-        if (i >= 0) { const n = [...ucs]; n[i] = saved; finalUcs = n; }
-        else { finalUcs = [...ucs, saved]; }
+        if (i >= 0) { const n = [...ucs]; n[i] = saved; setUcs(n); }
+        else { setUcs([...ucs, saved]); }
       }
-      setUcs(finalUcs);
-      await pushDataJson(finalUcs);
       setSpStatus("synced");
     } catch (err) {
       console.error("Save error:", err);
@@ -439,13 +422,10 @@ export default function App() {
   const deleteUC = async id => {
     if (!isAdmin) return;
     setSpStatus("saving");
-    let finalUcs;
     try {
       const uc = ucs.find(u => u.id === id);
       if (uc?.spId) await spDelete(uc.spId);
-      finalUcs = ucs.filter(u => u.id !== id);
-      setUcs(finalUcs);
-      await pushDataJson(finalUcs);
+      setUcs(ucs.filter(u => u.id !== id));
       setSpStatus("synced");
     } catch (err) {
       console.error("Delete error:", err);
