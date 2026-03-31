@@ -7,16 +7,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GH_TOKEN }}
       - name: Write data.json
         run: |
           mkdir -p public
+          echo "Received payload:"
+          echo '${{ toJson(github.event.client_payload) }}'
           echo '${{ toJson(github.event.client_payload.ucs) }}' | python3 -c "
           import sys, json
-          ucs = json.load(sys.stdin)
-          with open('public/data.json', 'w') as f:
-              json.dump({'ucs': ucs}, f, indent=2)
+          try:
+              ucs = json.load(sys.stdin)
+              print(f'Parsed {len(ucs)} UC items')
+              with open('public/data.json', 'w') as f:
+                  json.dump({'ucs': ucs}, f, indent=2)
+              print('Successfully wrote data.json')
+          except Exception as e:
+              print(f'Error: {e}')
+              sys.exit(1)
           "
       - name: Commit and push
         run: |
