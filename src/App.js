@@ -10,27 +10,39 @@ const SP_LIST = "QBEAIPortal";
 const SP_API  = `${SP_SITE}/_api/lists/getbytitle('${SP_LIST}')/items`;
 const SP_HDR  = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose" };
 
-// ── GITHUB CONFIG ─────────────────────────────────────────────────────────
-const GH_TOKEN  = process.env.REACT_APP_GH_TOKEN;
-const GH_REPO   = "shashankjohari/genai-hub-v3";
-const GH_BRANCH = "master";
-const GH_PATH   = "public/data.json";
-const GH_API    = `https://api.github.com/repos/${GH_REPO}/contents/${GH_PATH}`;
+// ── SHAREPOINT HELPERS ────────────────────────────────────────────────────
+async function spDigest() {
+  const r = await fetch(`${SP_SITE}/_api/contextinfo`, { method: "POST", headers: { "Accept": "application/json;odata=verbose" }, credentials: "include" });
+  const d = await r.json();
+  return d.d.GetContextWebInformation.FormDigestValue;
+}
 
-async function pushDataJson(updatedUcs) {
-  const getRes = await fetch(`${GH_API}?ref=${GH_BRANCH}`, {
-    headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json" },
-  });
-  const getJson = await getRes.json();
-  const sha = getJson.sha;
-  const newContent = JSON.stringify({ ucs: updatedUcs }, null, 2);
-  const encoded = btoa(unescape(encodeURIComponent(newContent)));
-  const putRes = await fetch(GH_API, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "chore: sync data.json from app", content: encoded, sha, branch: GH_BRANCH }),
-  });
-  if (!putRes.ok) { const err = await putRes.json(); throw new Error(`GitHub push failed: ${err.message}`); }
+async function spLoadAll() {
+  const r = await fetch(`${SP_API}?$top=500`, { headers: { "Accept": "application/json;odata=verbose" }, credentials: "include" });
+  const d = await r.json();
+  return (d.d?.results || []).map(spToUC);
+}
+
+async function spCreate(uc) {
+  const digest = await spDigest();
+  const body = ucToSP(uc);
+  const r = await fetch(SP_API, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest }, credentials: "include", body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("SP create failed: " + r.status);
+  const d = await r.json();
+  return d.d.Id;
+}
+
+async function spUpdate(spId, uc) {
+  const digest = await spDigest();
+  const body = ucToSP(uc);
+  const r = await fetch(`${SP_API}(${spId})`, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest, "IF-MATCH": "*", "X-HTTP-Method": "MERGE" }, credentials: "include", body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("SP update failed: " + r.status);
+}
+
+async function spDelete(spId) {
+  const digest = await spDigest();
+  const r = await fetch(`${SP_API}(${spId})`, { method: "POST", headers: { ...SP_HDR, "X-RequestDigest": digest, "IF-MATCH": "*", "X-HTTP-Method": "DELETE" }, credentials: "include" });
+  if (!r.ok) throw new Error("SP delete failed: " + r.status);
 }
 
 function spToUC(item) {
@@ -66,31 +78,33 @@ function ucToSP(uc) {
   };
 }
 
-// ── THEME ─────────────────────────────────────────────────────────────────
+// ── THEME (QBE Corporate) ─────────────────────────────────────────────────
 const TH = {
   light: {
-    bg:"#F7F8FC",bgCard:"#FFFFFF",bgDeep:"#EEF0F8",bgMuted:"#F0F2FA",
+    bg:"#F5F6FA",bgCard:"#FFFFFF",bgDeep:"#EEF0F8",bgMuted:"#F0F2FA",
     bd:"rgba(0,0,0,0.08)",bdStrong:"rgba(0,0,0,0.16)",
-    tx1:"#0B0D1A",tx2:"#4A5070",tx3:"#8C92AE",tx4:"#BFC3D6",
-    accent:"#006AFF",accentBg:"#EBF2FF",accentBd:"rgba(0,106,255,0.25)",
+    tx1:"#003057",tx2:"#4A5568",tx3:"#6B7280",tx4:"#D1D5DB",
+    accent:"#009AE4",accentBg:"rgba(0,154,228,0.08)",accentBd:"rgba(0,154,228,0.25)",
     green:"#0B7B5C",greenBg:"#E7F7F3",greenBd:"rgba(11,123,92,0.2)",
     blue:"#1A5CB0",blueBg:"#E8F0FC",blueBd:"rgba(26,92,176,0.2)",
     purple:"#5738A8",purpleBg:"#EEE9FC",purpleBd:"rgba(87,56,168,0.2)",
     amber:"#8C5E00",amberBg:"#FEF6E4",amberBd:"rgba(140,94,0,0.2)",
     red:"#B52020",redBg:"#FCEAEA",
+    nav:"#003057",navTx:"#FFFFFF",navTx2:"rgba(255,255,255,0.7)",navBd:"rgba(255,255,255,0.12)",navActive:"#009AE4",
     shadow:"0 1px 3px rgba(0,0,0,0.06),0 4px 16px rgba(0,0,0,0.04)",
     shadowHover:"0 4px 20px rgba(0,0,0,0.10),0 1px 4px rgba(0,0,0,0.06)",
   },
   dark: {
-    bg:"#090B12",bgCard:"#111420",bgDeep:"#0D1018",bgMuted:"#161A28",
-    bd:"rgba(255,255,255,0.07)",bdStrong:"rgba(255,255,255,0.15)",
-    tx1:"#EEF0F8",tx2:"#9AA0BE",tx3:"#5A6080",tx4:"#323650",
-    accent:"#4B8FFF",accentBg:"rgba(75,143,255,0.12)",accentBd:"rgba(75,143,255,0.28)",
+    bg:"#061222",bgCard:"#0A1E35",bgDeep:"#071829",bgMuted:"#0D2440",
+    bd:"rgba(255,255,255,0.06)",bdStrong:"rgba(255,255,255,0.12)",
+    tx1:"#EEF0F8",tx2:"rgba(255,255,255,0.6)",tx3:"rgba(255,255,255,0.4)",tx4:"rgba(255,255,255,0.15)",
+    accent:"#4DC3FF",accentBg:"rgba(0,154,228,0.12)",accentBd:"rgba(0,154,228,0.28)",
     green:"#3ECBA0",greenBg:"rgba(62,203,160,0.10)",greenBd:"rgba(62,203,160,0.22)",
     blue:"#6BADF5",blueBg:"rgba(107,173,245,0.10)",blueBd:"rgba(107,173,245,0.22)",
     purple:"#9E80F5",purpleBg:"rgba(158,128,245,0.10)",purpleBd:"rgba(158,128,245,0.22)",
     amber:"#F0B040",amberBg:"rgba(240,176,64,0.10)",amberBd:"rgba(240,176,64,0.22)",
     red:"#F07070",redBg:"rgba(240,112,112,0.10)",
+    nav:"#001428",navTx:"#EEF0F8",navTx2:"rgba(255,255,255,0.5)",navBd:"rgba(255,255,255,0.06)",navActive:"#4DC3FF",
     shadow:"0 1px 3px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2)",
     shadowHover:"0 4px 24px rgba(0,0,0,0.38)",
   }
@@ -187,7 +201,7 @@ const SC = (t, s) => {
   return                             { bg: t.purpleBg, tx: t.purple };
 };
 const SLabel = ({ t, children, color }) => (
-  <div style={{ fontSize: 11, fontWeight: 600, color: color || t.tx3, letterSpacing: "0.1em", textTransform: "uppercase" }}>{children}</div>
+  <div style={{ fontSize: 12, fontWeight: 600, color: color || t.tx3, letterSpacing: "0.1em", textTransform: "uppercase" }}>{children}</div>
 );
 
 // ── STATIC DATA ───────────────────────────────────────────────────────────
@@ -308,17 +322,17 @@ export default function App() {
   useEffect(() => {
     if (!authed) return;
     setSpLoading(true); setSpError(null);
-    fetch(DATA_URL).then(r => r.json()).then(data => {
-      if (data?.ucs?.length > 0) {
-        const spTitles = new Set(data.ucs.map(u => u.title.toLowerCase()));
+    spLoadAll().then(spUcs => {
+      if (spUcs.length > 0) {
+        const spTitles = new Set(spUcs.map(u => u.title.toLowerCase()));
         const localOnly = INIT_UCS.filter(u => !spTitles.has(u.title.toLowerCase()));
-        setUcs([...data.ucs, ...localOnly]);
+        setUcs([...spUcs, ...localOnly]);
         setSpStatus("synced");
       }
       setSpLoading(false);
     }).catch(err => {
-      console.error("data.json load failed:", err);
-      setSpError("Could not load data — showing local fallback.");
+      console.error("SharePoint load failed:", err);
+      setSpError("Could not load from SharePoint — showing local fallback.");
       setSpStatus("error"); setSpLoading(false);
     });
   }, [authed]);
@@ -334,34 +348,34 @@ export default function App() {
   }, [ucs, fDomain, fPillar, fStatus, search]);
 
   if (!authed) return (
-    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#090B12", fontFamily:"'Inter','Segoe UI',sans-serif" }}>
-      <div style={{ background:"#111420", border:"1px solid rgba(255,255,255,0.07)", borderRadius:16, padding:"52px 48px", width:420, textAlign:"center", boxShadow:"0 32px 80px rgba(0,0,0,0.6)" }}>
-        <svg width="32" height="28" viewBox="0 0 100 88" style={{ marginBottom:12 }}><polygon points="50,4 96,84 4,84" fill="none" stroke="#4B8FFF" strokeWidth="9" strokeLinejoin="round"/><line x1="50" y1="30" x2="50" y2="58" stroke="#4B8FFF" strokeWidth="8" strokeLinecap="round"/><circle cx="50" cy="70" r="5" fill="#4B8FFF"/></svg>
-        <div style={{ fontSize:20, color:"#EEF0F8", marginBottom:5, fontWeight:700 }}>QBE AI Command Centre</div>
-        <div style={{ fontSize:11, color:"#5A6080", fontFamily:"monospace", letterSpacing:"0.2em", marginBottom:36 }}>RESTRICTED ACCESS</div>
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#001428", fontFamily:"'Inter','Segoe UI',sans-serif" }}>
+      <div style={{ background:"#0A1E35", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:"52px 48px", width:420, textAlign:"center", boxShadow:"0 32px 80px rgba(0,0,0,0.6)" }}>
+        <QBELogo style={{ marginBottom:16 }} />
+        <div style={{ fontSize:22, color:"#EEF0F8", marginBottom:5, fontWeight:700 }}>QBE AI Innovation Studio</div>
+        <div style={{ fontSize:12, color:"rgba(255,255,255,0.3)", fontFamily:"monospace", letterSpacing:"0.2em", marginBottom:36 }}>RESTRICTED ACCESS</div>
         <div style={{ marginBottom:pwdErr ? 4 : 12, textAlign:"left" }}>
-          <label style={{ fontSize:11, color:"#5A6080", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", display:"block", marginBottom:5 }}>Password</label>
+          <label style={{ fontSize:12, color:"rgba(255,255,255,0.35)", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", display:"block", marginBottom:5 }}>Password</label>
           <input type="password" placeholder="Enter password" value={pwd} onChange={e=>{setPwd(e.target.value);setPwdErr(false);}} onKeyDown={e=>{if(e.key==="Enter")handleLogin();}}
-            style={{ width:"100%", background:"#0D1018", border:`1px solid ${pwdErr?"#F07070":"rgba(255,255,255,0.07)"}`, borderRadius:8, padding:"12px 16px", color:"#EEF0F8", fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"monospace", letterSpacing:"0.06em" }}/>
+            style={{ width:"100%", background:"#061222", border:`1px solid ${pwdErr?"#F07070":"rgba(255,255,255,0.08)"}`, borderRadius:8, padding:"13px 16px", color:"#EEF0F8", fontSize:15, outline:"none", boxSizing:"border-box", fontFamily:"monospace", letterSpacing:"0.06em" }}/>
         </div>
-        {pwdErr && <div style={{ fontSize:12, color:"#F07070", marginBottom:12, fontFamily:"monospace", textAlign:"left" }}>Incorrect password</div>}
+        {pwdErr && <div style={{ fontSize:13, color:"#F07070", marginBottom:12, fontFamily:"monospace", textAlign:"left" }}>Incorrect password</div>}
         <div style={{ marginBottom:pinErr ? 4 : 16, textAlign:"left" }}>
-          <label style={{ fontSize:11, color:"#5A6080", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", display:"block", marginBottom:5 }}>Admin PIN <span style={{ color:"#323650", fontWeight:400, letterSpacing:0 }}>(optional)</span></label>
+          <label style={{ fontSize:12, color:"rgba(255,255,255,0.35)", fontWeight:600, letterSpacing:"0.08em", textTransform:"uppercase", display:"block", marginBottom:5 }}>Admin PIN <span style={{ color:"rgba(255,255,255,0.15)", fontWeight:400, letterSpacing:0 }}>(optional)</span></label>
           <input type="password" placeholder="Enter PIN for admin access" value={pin} onChange={e=>{setPin(e.target.value);setPinErr(false);}} onKeyDown={e=>{if(e.key==="Enter")handleLogin();}}
-            style={{ width:"100%", background:"#0D1018", border:`1px solid ${pinErr?"#F07070":"rgba(255,255,255,0.07)"}`, borderRadius:8, padding:"12px 16px", color:"#EEF0F8", fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"monospace", letterSpacing:"0.06em" }}/>
+            style={{ width:"100%", background:"#061222", border:`1px solid ${pinErr?"#F07070":"rgba(255,255,255,0.08)"}`, borderRadius:8, padding:"13px 16px", color:"#EEF0F8", fontSize:15, outline:"none", boxSizing:"border-box", fontFamily:"monospace", letterSpacing:"0.06em" }}/>
         </div>
-        {pinErr && <div style={{ fontSize:12, color:"#F07070", marginBottom:12, fontFamily:"monospace", textAlign:"left" }}>Incorrect admin PIN — entering read-only mode</div>}
+        {pinErr && <div style={{ fontSize:13, color:"#F07070", marginBottom:12, fontFamily:"monospace", textAlign:"left" }}>Incorrect admin PIN — entering read-only mode</div>}
         <div style={{ display:"flex", gap:8, marginBottom:20 }}>
-          <div style={{ flex:1, background:"rgba(62,203,160,0.07)", border:"1px solid rgba(62,203,160,0.15)", borderRadius:8, padding:"8px 10px", textAlign:"left" }}>
-            <div style={{ fontSize:10, fontWeight:700, color:"#3ECBA0", marginBottom:2 }}>READ-ONLY</div>
-            <div style={{ fontSize:11, color:"#5A6080", lineHeight:1.5 }}>Password only — view all content</div>
+          <div style={{ flex:1, background:"rgba(0,154,228,0.06)", border:"1px solid rgba(0,154,228,0.12)", borderRadius:8, padding:"8px 10px", textAlign:"left" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#4DC3FF", marginBottom:2 }}>READ-ONLY</div>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", lineHeight:1.5 }}>Password only — view all content</div>
           </div>
-          <div style={{ flex:1, background:"rgba(75,143,255,0.07)", border:"1px solid rgba(75,143,255,0.15)", borderRadius:8, padding:"8px 10px", textAlign:"left" }}>
-            <div style={{ fontSize:10, fontWeight:700, color:"#4B8FFF", marginBottom:2 }}>ADMIN</div>
-            <div style={{ fontSize:11, color:"#5A6080", lineHeight:1.5 }}>Password + PIN — edit & manage</div>
+          <div style={{ flex:1, background:"rgba(0,154,228,0.06)", border:"1px solid rgba(0,154,228,0.12)", borderRadius:8, padding:"8px 10px", textAlign:"left" }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#4DC3FF", marginBottom:2 }}>ADMIN</div>
+            <div style={{ fontSize:12, color:"rgba(255,255,255,0.35)", lineHeight:1.5 }}>Password + PIN — edit & manage</div>
           </div>
         </div>
-        <button onClick={handleLogin} style={{ width:"100%", background:"#4B8FFF", border:"none", borderRadius:8, padding:"13px", color:"#fff", fontSize:13, fontWeight:700, cursor:"pointer", letterSpacing:"0.1em", fontFamily:"monospace" }}>ENTER →</button>
+        <button onClick={handleLogin} style={{ width:"100%", background:"#009AE4", border:"none", borderRadius:24, padding:"14px", color:"#fff", fontSize:14, fontWeight:700, cursor:"pointer", letterSpacing:"0.1em", fontFamily:"monospace" }}>ENTER →</button>
       </div>
     </div>
   );
@@ -382,17 +396,21 @@ export default function App() {
   const removeVideo = (e, id) => { if (!isAdmin) return; e.stopPropagation(); setVideos(p => { const n={...p}; delete n[id]; return n; }); };
   const removeArch  = (e, id) => { if (!isAdmin) return; e.stopPropagation(); setArchs(p  => { const n={...p}; delete n[id]; return n; }); };
 
-  // ── SAVE ──────────────────────────────────────────────────────────────
   const saveUC = async uc => {
     if (!isAdmin) return;
     setSpStatus("saving");
-    let finalUcs;
     try {
-      const i = ucs.findIndex(u => u.id === uc.id);
-      if (i >= 0) { const n = [...ucs]; n[i] = uc; finalUcs = n; }
-      else { finalUcs = [...ucs, uc]; }
-      setUcs(finalUcs);
-      await pushDataJson(finalUcs);
+      if (uc.spId) {
+        await spUpdate(uc.spId, uc);
+        const n = [...ucs]; const i = n.findIndex(u => u.id === uc.id); if (i >= 0) n[i] = uc;
+        setUcs(n);
+      } else {
+        const newSpId = await spCreate(uc);
+        const saved = { ...uc, spId: newSpId, id: newSpId.toString() };
+        const i = ucs.findIndex(u => u.id === uc.id);
+        if (i >= 0) { const n = [...ucs]; n[i] = saved; setUcs(n); }
+        else { setUcs([...ucs, saved]); }
+      }
       setSpStatus("synced");
     } catch (err) {
       console.error("Save error:", err);
@@ -401,15 +419,13 @@ export default function App() {
     setEditUC(null); setAdmin(false);
   };
 
-  // ── DELETE ────────────────────────────────────────────────────────────
   const deleteUC = async id => {
     if (!isAdmin) return;
     setSpStatus("saving");
-    let finalUcs;
     try {
-      finalUcs = ucs.filter(u => u.id !== id);
-      setUcs(finalUcs);
-      await pushDataJson(finalUcs);
+      const uc = ucs.find(u => u.id === id);
+      if (uc?.spId) await spDelete(uc.spId);
+      setUcs(ucs.filter(u => u.id !== id));
       setSpStatus("synced");
     } catch (err) {
       console.error("Delete error:", err);
@@ -420,6 +436,7 @@ export default function App() {
   };
 
   const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     @keyframes fadeIn { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
     @keyframes pulse  { 0%,100% { opacity:1 } 50% { opacity:0.35 } }
     @keyframes ticker { 0% { transform:translateX(0) } 100% { transform:translateX(-50%) } }
@@ -434,18 +451,21 @@ export default function App() {
     ::-webkit-scrollbar { width:4px; height:4px }
     ::-webkit-scrollbar-track { background:transparent }
     ::-webkit-scrollbar-thumb { background:${t.tx4}; border-radius:2px }
-    .tbtn { background:transparent; border:1px solid ${t.bd}; border-radius:20px; padding:5px 13px; font-size:12px; color:${t.tx2}; transition:all 0.15s }
+    .tbtn { background:transparent; border:1px solid ${t.bd}; border-radius:20px; padding:6px 15px; font-size:13px; color:${t.tx2}; transition:all 0.15s }
     .tbtn:hover { border-color:${t.accent}; color:${t.accent} }
-    .tbtn.on { background:${t.tx1}; color:${t.bg}; border-color:${t.tx1}; font-weight:500 }
+    .tbtn.on { background:${t.nav}; color:#fff; border-color:${t.nav}; font-weight:500 }
     .spin { animation:spin 1s linear infinite }
+    .pill-primary { background:${t.nav}; color:#fff; border:none; border-radius:24px; padding:11px 24px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:7px }
+    .pill-secondary { background:transparent; color:${t.nav}; border:1.5px solid ${t.nav}; border-radius:24px; padding:11px 24px; font-size:14px; font-weight:500; cursor:pointer; display:flex; align-items:center; gap:7px }
+    .pill-ghost { background:transparent; color:${t.tx2}; border:1px solid ${t.bd}; border-radius:24px; padding:11px 24px; font-size:14px; cursor:pointer; display:flex; align-items:center; gap:7px }
   `;
 
   return (
     <div style={{ fontFamily:"'Inter','Segoe UI',system-ui,sans-serif", background:t.bg, minHeight:"100vh", color:t.tx1, transition:"background 0.3s,color 0.3s" }}>
       <style>{css}</style>
-      {spLoading && <div style={{ background:t.accentBg, borderBottom:`1px solid ${t.accentBd}`, padding:"8px 24px", display:"flex", alignItems:"center", gap:8, fontSize:12, color:t.accent }}><Icon name="sync" size={13} color={t.accent} style={{ animation:"spin 1s linear infinite" }} />Loading use cases from SharePoint…</div>}
-      {!spLoading && spError && <div style={{ background:t.redBg, borderBottom:`1px solid ${t.red}44`, padding:"8px 24px", fontSize:12, color:t.red }}>⚠ {spError}</div>}
-      {!spLoading && spStatus==="saving" && <div style={{ background:t.amberBg, borderBottom:`1px solid ${t.amberBd}`, padding:"8px 24px", display:"flex", alignItems:"center", gap:8, fontSize:12, color:t.amber }}><Icon name="sync" size={13} color={t.amber} style={{ animation:"spin 1s linear infinite" }} />Saving…</div>}
+      {spLoading && <div style={{ background:t.accentBg, borderBottom:`1px solid ${t.accentBd}`, padding:"8px 24px", display:"flex", alignItems:"center", gap:8, fontSize:13, color:t.accent }}><Icon name="sync" size={13} color={t.accent} style={{ animation:"spin 1s linear infinite" }} />Loading use cases…</div>}
+      {!spLoading && spError && <div style={{ background:t.redBg, borderBottom:`1px solid ${t.red}44`, padding:"8px 24px", fontSize:13, color:t.red }}>⚠ {spError}</div>}
+      {!spLoading && spStatus==="saving" && <div style={{ background:t.amberBg, borderBottom:`1px solid ${t.amberBd}`, padding:"8px 24px", display:"flex", alignItems:"center", gap:8, fontSize:13, color:t.amber }}><Icon name="sync" size={13} color={t.amber} style={{ animation:"spin 1s linear infinite" }} />Saving…</div>}
       <Nav t={t} dk={dk} setDk={setDk} view={view} go={go} isCat={isCat} isAdmin={isAdmin} onAdmin={()=>{setEditUC(null);setAdmin(true);}} search={search} setSearch={s=>{setSearch(s);if(view!=="catalog")go("catalog");}} chatOpen={chatOpen} setChat={setChat} spStatus={spStatus} />
       <div style={{ maxWidth:1160, margin:"0 auto", padding:"0 clamp(16px,3vw,40px)" }}>
         {view==="home"      && <HomePage      t={t} dk={dk} ucs={ucs} videos={videos} archs={archs} isAdmin={isAdmin} onUpload={handleUpload} onArchUpload={handleArchUpload} go={go} setFP={setFP} />}
@@ -463,23 +483,46 @@ export default function App() {
   );
 }
 
+// ── QBE LOGO (full SVG from corporate brand) ──────────────────────────────
+function QBELogo({ style: sx = {} }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="100" height="28" viewBox="0 0 330 91" style={sx}>
+      <path fill="#fff" transform="translate(112.232 1.51061)" d="M71.761124 56.032986C70.371117 59.68837 68.147919 63.251694 65.082092 66.706711C59.395348 61.479507 53.345936 57.447754 46.951382 54.631752C40.599968 51.821171 34.251251 50.429417 27.916016 50.429417C24.966135 50.429417 22.36544 50.651447 20.13685 51.11311C17.889385 51.558521 15.811795 52.262524 13.958008 53.240002C13.521189 51.603199 13.215145 50.04763 12.989994 48.546215C12.768888 47.081352 12.685299 45.662521 12.685299 44.339817C12.685299 39.995323 13.480742 35.834953 15.106683 31.845169C16.68948 27.859446 19.013792 24.315077 22.029736 21.21883C24.829966 18.335138 28.022526 16.125662 31.641117 14.618831C35.243534 13.114708 39.037392 12.311877 43.029438 12.311877C47.521671 12.311877 51.624271 13.159385 55.292747 14.816492C58.953136 16.479015 62.372196 19.048615 65.540489 22.502277C68.251732 25.426584 70.322586 28.700184 71.742249 32.310894C73.14843 35.899937 73.864326 39.686646 73.864326 43.607384C73.864326 48.236183 73.14843 52.399261 71.761124 56.032986M49.507584 75.673233C47.521671 76.098335 45.604519 76.313599 43.735901 76.313599C38.623493 76.313599 33.849483 75.116798 29.443537 72.777351C25.010626 70.381042 21.281479 67.01403 18.260143 62.634338C19.585432 62.210583 20.930944 61.876186 22.292637 61.67717C23.663765 61.479507 25.115786 61.344124 26.579941 61.344124C31.734144 61.344124 36.812847 62.410954 41.790436 64.491814C46.773415 66.617355 51.428783 69.651321 55.768665 73.635689C53.567043 74.541412 51.469227 75.229172 49.507584 75.673233M80.676826 74.984123C79.089989 74.640244 77.516624 74.102768 76.013374 73.393356C79.591522 69.314217 82.243446 64.914215 83.998817 60.192001C85.715088 55.475201 86.610298 50.318401 86.610298 44.758152C86.610298 38.359879 85.499374 32.463879 83.320663 27.063385C81.136566 21.616861 77.876602 16.768738 73.511101 12.445908C69.337044 8.3058462 64.707291 5.181169 59.660946 3.1003077C54.584938 1.0208 49.093685 0 43.15617 0C37.380444 0 31.975473 1.0208 26.968225 3.1003077C21.948843 5.181169 17.354147 8.2855387 13.255591 12.311877C8.9332333 16.696985 5.6206837 21.526154 3.3718708 26.838646C1.1311474 32.180923 0 37.802094 0 43.718399C0 50.891075 1.4048338 57.537109 4.2158499 63.602337C7.0376511 69.693291 11.087671 74.898834 16.341642 79.15126C20.13685 82.205536 24.32304 84.52874 28.8692 86.127632C33.434235 87.718399 38.177235 88.518524 43.15617 88.518524C47.461002 88.518524 51.583828 87.943138 55.504417 86.769356C59.439838 85.617233 63.179771 83.865356 66.712082 81.58683C70.086647 83.4944 73.414024 84.9552 76.655121 85.948921C79.92318 86.90609 83.121132 87.393478 86.248978 87.393478L87.361252 87.393478L87.361252 75.498581L85.787888 75.498581C83.979942 75.498581 82.258278 75.342896 80.676826 74.984123" fillRule="evenodd"/>
+      <path fill="#fff" transform="translate(206.647 2.83995)" d="M45.340271 71.175751C42.651939 73.328369 38.44418 74.410095 32.729122 74.410095L12.148712 74.410095L12.148712 46.329967L32.729122 46.329967C38.223076 46.329967 42.363426 47.614769 45.185226 50.118031C47.990849 52.644306 49.401077 56.340309 49.401077 61.211445C49.401077 65.730583 48.054214 69.032616 45.340271 71.175751L45.340271 71.175751ZM12.260613 11.713477L29.72801 11.713477C34.821545 11.713477 38.612705 12.670646 41.109589 14.597169C43.576813 16.51963 44.809074 19.448 44.809074 23.4256C44.809074 27.947447 43.448734 31.177723 40.737484 33.129971C37.975002 35.079506 33.412666 36.052921 27.008671 36.052921L12.260613 36.052921L12.260613 11.713477ZM48.013767 39.732677C51.012184 37.955078 53.267738 35.702278 54.850536 32.998646C56.398281 30.274708 57.161366 27.152739 57.161366 23.585354C57.161366 15.904984 54.781776 10.052308 50.040127 6.0219078C45.272861 2.015877 38.347111 0 29.179289 0L0 0L0 86.039627L30.538282 86.039627C36.494671 86.039627 41.132511 85.577972 44.392479 84.619446C47.660538 83.670403 50.607723 82.09317 53.194935 79.905357C55.822594 77.580803 57.893444 74.633476 59.371082 71.132431C60.84737 67.612434 61.598324 63.829784 61.598324 59.81834C61.598324 54.8592 60.403809 50.581047 57.937935 46.993355C55.534081 43.407017 52.197262 40.994461 48.013767 39.732677L48.013767 39.732677Z" fillRule="evenodd"/>
+      <path fill="#fff" transform="translate(274.718 2.88625)" d="M54.211487 11.488738L54.211487 0L0 0L0 86.038277L54.211487 86.038277L54.211487 74.169106L12.419702 74.169106L12.419702 48.389168L51.176666 48.389168L51.176666 37.210461L12.419702 37.210461L12.419702 11.488738L54.211487 11.488738Z" fillRule="evenodd"/>
+      <path fill="#009AE4" transform="translate(1.60645 2.7122)" d="M32.660847 67.719872L44.595196 46.946461L37.695061 34.986584L22.336264 61.716919C20.684708 64.57489 21.655416 68.249229 24.50688 69.890091C27.371824 71.57563 31.003899 70.576492 32.660847 67.719872L32.660847 67.719872ZM19.39447 60.055752L26.442907 47.830521C16.166859 48.094521 7.9158192 56.553352 7.9158192 66.923813C7.9158192 77.487877 16.458071 86.052307 26.974102 86.052307L66.097778 86.052307C74.39196 86.052307 81.466019 80.719505 84.05188 73.255753C78.227615 76.199013 71.593079 76.312737 65.851059 74.072121L27.611805 74.072121C26.000694 74.097847 24.324871 73.697105 22.822966 72.8144C20.59977 71.528244 19.124828 69.44603 18.487125 67.141785C17.888521 64.83889 18.124458 62.293659 19.39447 60.055752L19.39447 60.055752ZM35.090321 23.69009L47.021969 44.420181L60.80471 44.420181L45.410862 17.691198C43.776833 14.835936 40.113747 13.858459 37.291946 15.495259C34.427002 17.159136 33.432022 20.813168 35.090321 23.69009L35.090321 23.69009ZM48.31625 15.985352L55.335026 28.209229C60.229027 19.131689 57.076912 7.7458439 48.122108 2.5619669C39.010914 -2.7126179 27.371824 0.41747451 22.123245 9.5613518L2.5620809 43.579445C-1.6065814 50.796799 -0.52262139 59.610336 4.6113586 65.639015C5.014473 59.056614 8.185461 53.232368 12.995871 49.379322L32.133698 16.116674C32.90757 14.697844 34.080513 13.459075 35.595898 12.575013C37.820442 11.291567 40.380692 11.024859 42.671299 11.642213C44.963257 12.264982 47.021969 13.744736 48.31625 15.985352L48.31625 15.985352ZM71.829018 47.808861L47.969761 47.808861L41.088501 59.790398L71.829018 59.790398C75.141563 59.790398 77.785408 57.109783 77.785408 53.813168C77.785408 50.490829 75.141563 47.808861 71.829018 47.808861L71.829018 47.808861ZM71.872162 63.156059C74.432411 63.156059 76.748634 62.094643 78.448723 60.411812C80.120506 58.727627 81.159973 56.378704 81.159973 53.813168C81.159973 52.038273 80.698883 50.401474 79.853554 49.005661L60.734604 15.766028C59.786816 9.6520596 56.394718 3.9361207 50.919643 0.34707451C58.644882 -1.1353871 66.798851 2.3439975 70.947289 9.5613518L90.509804 43.579445C95.781296 52.72332 92.650757 64.419197 83.539558 69.71138C74.569923 74.896614 63.182953 71.945229 57.806293 63.156059L71.872162 63.156059Z" fillRule="evenodd"/>
+    </svg>
+  );
+}
+
+function QBEMark() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="80" height="22" viewBox="0 0 330 91">
+      <path fill="#fff" transform="translate(112.232 1.51061)" d="M71.761124 56.032986C70.371117 59.68837 68.147919 63.251694 65.082092 66.706711C59.395348 61.479507 53.345936 57.447754 46.951382 54.631752C40.599968 51.821171 34.251251 50.429417 27.916016 50.429417C24.966135 50.429417 22.36544 50.651447 20.13685 51.11311C17.889385 51.558521 15.811795 52.262524 13.958008 53.240002C13.521189 51.603199 13.215145 50.04763 12.989994 48.546215C12.768888 47.081352 12.685299 45.662521 12.685299 44.339817C12.685299 39.995323 13.480742 35.834953 15.106683 31.845169C16.68948 27.859446 19.013792 24.315077 22.029736 21.21883C24.829966 18.335138 28.022526 16.125662 31.641117 14.618831C35.243534 13.114708 39.037392 12.311877 43.029438 12.311877C47.521671 12.311877 51.624271 13.159385 55.292747 14.816492C58.953136 16.479015 62.372196 19.048615 65.540489 22.502277C68.251732 25.426584 70.322586 28.700184 71.742249 32.310894C73.14843 35.899937 73.864326 39.686646 73.864326 43.607384C73.864326 48.236183 73.14843 52.399261 71.761124 56.032986M49.507584 75.673233C47.521671 76.098335 45.604519 76.313599 43.735901 76.313599C38.623493 76.313599 33.849483 75.116798 29.443537 72.777351C25.010626 70.381042 21.281479 67.01403 18.260143 62.634338C19.585432 62.210583 20.930944 61.876186 22.292637 61.67717C23.663765 61.479507 25.115786 61.344124 26.579941 61.344124C31.734144 61.344124 36.812847 62.410954 41.790436 64.491814C46.773415 66.617355 51.428783 69.651321 55.768665 73.635689C53.567043 74.541412 51.469227 75.229172 49.507584 75.673233M80.676826 74.984123C79.089989 74.640244 77.516624 74.102768 76.013374 73.393356C79.591522 69.314217 82.243446 64.914215 83.998817 60.192001C85.715088 55.475201 86.610298 50.318401 86.610298 44.758152C86.610298 38.359879 85.499374 32.463879 83.320663 27.063385C81.136566 21.616861 77.876602 16.768738 73.511101 12.445908C69.337044 8.3058462 64.707291 5.181169 59.660946 3.1003077C54.584938 1.0208 49.093685 0 43.15617 0C37.380444 0 31.975473 1.0208 26.968225 3.1003077C21.948843 5.181169 17.354147 8.2855387 13.255591 12.311877C8.9332333 16.696985 5.6206837 21.526154 3.3718708 26.838646C1.1311474 32.180923 0 37.802094 0 43.718399C0 50.891075 1.4048338 57.537109 4.2158499 63.602337C7.0376511 69.693291 11.087671 74.898834 16.341642 79.15126C20.13685 82.205536 24.32304 84.52874 28.8692 86.127632C33.434235 87.718399 38.177235 88.518524 43.15617 88.518524C47.461002 88.518524 51.583828 87.943138 55.504417 86.769356C59.439838 85.617233 63.179771 83.865356 66.712082 81.58683C70.086647 83.4944 73.414024 84.9552 76.655121 85.948921C79.92318 86.90609 83.121132 87.393478 86.248978 87.393478L87.361252 87.393478L87.361252 75.498581L85.787888 75.498581C83.979942 75.498581 82.258278 75.342896 80.676826 74.984123" fillRule="evenodd"/>
+      <path fill="#fff" transform="translate(206.647 2.83995)" d="M45.340271 71.175751C42.651939 73.328369 38.44418 74.410095 32.729122 74.410095L12.148712 74.410095L12.148712 46.329967L32.729122 46.329967C38.223076 46.329967 42.363426 47.614769 45.185226 50.118031C47.990849 52.644306 49.401077 56.340309 49.401077 61.211445C49.401077 65.730583 48.054214 69.032616 45.340271 71.175751L45.340271 71.175751ZM12.260613 11.713477L29.72801 11.713477C34.821545 11.713477 38.612705 12.670646 41.109589 14.597169C43.576813 16.51963 44.809074 19.448 44.809074 23.4256C44.809074 27.947447 43.448734 31.177723 40.737484 33.129971C37.975002 35.079506 33.412666 36.052921 27.008671 36.052921L12.260613 36.052921L12.260613 11.713477ZM48.013767 39.732677C51.012184 37.955078 53.267738 35.702278 54.850536 32.998646C56.398281 30.274708 57.161366 27.152739 57.161366 23.585354C57.161366 15.904984 54.781776 10.052308 50.040127 6.0219078C45.272861 2.015877 38.347111 0 29.179289 0L0 0L0 86.039627L30.538282 86.039627C36.494671 86.039627 41.132511 85.577972 44.392479 84.619446C47.660538 83.670403 50.607723 82.09317 53.194935 79.905357C55.822594 77.580803 57.893444 74.633476 59.371082 71.132431C60.84737 67.612434 61.598324 63.829784 61.598324 59.81834C61.598324 54.8592 60.403809 50.581047 57.937935 46.993355C55.534081 43.407017 52.197262 40.994461 48.013767 39.732677L48.013767 39.732677Z" fillRule="evenodd"/>
+      <path fill="#fff" transform="translate(274.718 2.88625)" d="M54.211487 11.488738L54.211487 0L0 0L0 86.038277L54.211487 86.038277L54.211487 74.169106L12.419702 74.169106L12.419702 48.389168L51.176666 48.389168L51.176666 37.210461L12.419702 37.210461L12.419702 11.488738L54.211487 11.488738Z" fillRule="evenodd"/>
+      <path fill="#009AE4" transform="translate(1.60645 2.7122)" d="M32.660847 67.719872L44.595196 46.946461L37.695061 34.986584L22.336264 61.716919C20.684708 64.57489 21.655416 68.249229 24.50688 69.890091C27.371824 71.57563 31.003899 70.576492 32.660847 67.719872L32.660847 67.719872ZM19.39447 60.055752L26.442907 47.830521C16.166859 48.094521 7.9158192 56.553352 7.9158192 66.923813C7.9158192 77.487877 16.458071 86.052307 26.974102 86.052307L66.097778 86.052307C74.39196 86.052307 81.466019 80.719505 84.05188 73.255753C78.227615 76.199013 71.593079 76.312737 65.851059 74.072121L27.611805 74.072121C26.000694 74.097847 24.324871 73.697105 22.822966 72.8144C20.59977 71.528244 19.124828 69.44603 18.487125 67.141785C17.888521 64.83889 18.124458 62.293659 19.39447 60.055752L19.39447 60.055752ZM35.090321 23.69009L47.021969 44.420181L60.80471 44.420181L45.410862 17.691198C43.776833 14.835936 40.113747 13.858459 37.291946 15.495259C34.427002 17.159136 33.432022 20.813168 35.090321 23.69009L35.090321 23.69009ZM48.31625 15.985352L55.335026 28.209229C60.229027 19.131689 57.076912 7.7458439 48.122108 2.5619669C39.010914 -2.7126179 27.371824 0.41747451 22.123245 9.5613518L2.5620809 43.579445C-1.6065814 50.796799 -0.52262139 59.610336 4.6113586 65.639015C5.014473 59.056614 8.185461 53.232368 12.995871 49.379322L32.133698 16.116674C32.90757 14.697844 34.080513 13.459075 35.595898 12.575013C37.820442 11.291567 40.380692 11.024859 42.671299 11.642213C44.963257 12.264982 47.021969 13.744736 48.31625 15.985352L48.31625 15.985352ZM71.829018 47.808861L47.969761 47.808861L41.088501 59.790398L71.829018 59.790398C75.141563 59.790398 77.785408 57.109783 77.785408 53.813168C77.785408 50.490829 75.141563 47.808861 71.829018 47.808861L71.829018 47.808861ZM71.872162 63.156059C74.432411 63.156059 76.748634 62.094643 78.448723 60.411812C80.120506 58.727627 81.159973 56.378704 81.159973 53.813168C81.159973 52.038273 80.698883 50.401474 79.853554 49.005661L60.734604 15.766028C59.786816 9.6520596 56.394718 3.9361207 50.919643 0.34707451C58.644882 -1.1353871 66.798851 2.3439975 70.947289 9.5613518L90.509804 43.579445C95.781296 52.72332 92.650757 64.419197 83.539558 69.71138C74.569923 74.896614 63.182953 71.945229 57.806293 63.156059L71.872162 63.156059Z" fillRule="evenodd"/>
+    </svg>
+  );
+}
+
 // ── NAV ───────────────────────────────────────────────────────────────────
 function Nav({ t, dk, setDk, view, go, isCat, isAdmin, onAdmin, search, setSearch, chatOpen, setChat, spStatus }) {
   const [sf, setSf] = useState(false);
   const NL = (label, v, iconName, match) => {
     const active = match ? match() : view === v;
-    return <button onClick={()=>go(v)} style={{ background:"none", border:"none", fontSize:13, fontWeight:active?600:400, color:active?t.accent:t.tx2, display:"flex", alignItems:"center", gap:5, padding:"4px 2px", borderBottom:`2px solid ${active?t.accent:"transparent"}`, transition:"color 0.15s" }}><Icon name={iconName} size={14} color={active?t.accent:t.tx3} />{label}</button>;
+    return <button onClick={()=>go(v)} style={{ background:"none", border:"none", fontSize:15, fontWeight:active?600:400, color:active?t.navActive:t.navTx2, display:"flex", alignItems:"center", gap:6, padding:"4px 2px", borderBottom:`2px solid ${active?t.navActive:"transparent"}`, transition:"color 0.15s" }}><Icon name={iconName} size={15} color={active?t.navActive:t.navTx2} />{label}</button>;
   };
   const spDot = spStatus==="synced" ? t.green : spStatus==="saving" ? t.amber : spStatus==="error" ? t.red : null;
   return (
-    <nav style={{ background:t.bgCard, borderBottom:`1px solid ${t.bd}`, padding:"0 clamp(16px,3vw,40px)", height:56, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:30 }}>
+    <nav style={{ background:t.nav, borderBottom:`1px solid ${t.navBd}`, padding:"0 clamp(16px,3vw,40px)", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:30 }}>
       <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-        <QBEMark t={t} />
-        <div style={{ width:1, height:20, background:t.bd, margin:"0 4px" }} />
-        <span style={{ fontSize:11, color:t.tx3, fontWeight:500 }}>AI Command Centre</span>
-        {spDot && <span title={spStatus==="synced"?"SharePoint synced":spStatus==="saving"?"Saving…":"SharePoint error"} style={{ width:7, height:7, borderRadius:"50%", background:spDot, display:"inline-block", marginLeft:2, animation:spStatus==="saving"?"pulse 1.2s infinite":"none" }} />}
+        <QBEMark />
+        <div style={{ width:1, height:22, background:t.navBd, margin:"0 4px" }} />
+        <span style={{ fontSize:13, color:t.navTx2, fontWeight:500 }}>AI Innovation Studio</span>
+        {spDot && <span title={spStatus==="synced"?"Data synced":spStatus==="saving"?"Saving…":"Sync error"} style={{ width:7, height:7, borderRadius:"50%", background:spDot, display:"inline-block", marginLeft:2, animation:spStatus==="saving"?"pulse 1.2s infinite":"none" }} />}
       </div>
-      <div style={{ display:"flex", alignItems:"center", gap:18 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:20 }}>
         {NL("Home","home","home")}
         {NL("Journey","journey","journey",()=>view==="journey")}
         {NL("Catalog","catalog","catalog",()=>isCat)}
@@ -488,34 +531,23 @@ function Nav({ t, dk, setDk, view, go, isCat, isAdmin, onAdmin, search, setSearc
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:7 }}>
         <div style={{ position:"relative", display:"flex", alignItems:"center" }}>
-          <span style={{ position:"absolute", left:8, pointerEvents:"none" }}><Icon name="search" size={12} color={t.tx3} /></span>
+          <span style={{ position:"absolute", left:9, pointerEvents:"none" }}><Icon name="search" size={13} color={t.navTx2} /></span>
           <input value={search} onChange={e=>setSearch(e.target.value)} onFocus={()=>setSf(true)} onBlur={()=>setSf(false)} placeholder="Search…"
-            style={{ background:t.bgMuted, border:`1px solid ${sf?t.accent:t.bd}`, borderRadius:8, padding:"5px 26px 5px 26px", fontSize:12, color:t.tx1, width:140, transition:"all 0.2s", outline:"none" }} />
-          {search && <button onClick={()=>setSearch("")} style={{ position:"absolute", right:7, background:"none", border:"none", color:t.tx3, fontSize:11, padding:0 }}><Icon name="close" size={10} color={t.tx3} /></button>}
+            style={{ background:"rgba(255,255,255,0.08)", border:`1px solid ${sf?"rgba(0,154,228,0.5)":t.navBd}`, borderRadius:20, padding:"6px 28px 6px 28px", fontSize:13, color:t.navTx, width:150, transition:"all 0.2s", outline:"none" }} />
+          {search && <button onClick={()=>setSearch("")} style={{ position:"absolute", right:8, background:"none", border:"none", color:t.navTx2, fontSize:11, padding:0 }}><Icon name="close" size={11} color={t.navTx2} /></button>}
         </div>
-        <button onClick={()=>setChat(o=>!o)} style={{ background:chatOpen?t.accentBg:"transparent", border:`1px solid ${chatOpen?t.accentBd:t.bd}`, borderRadius:8, padding:"5px 11px", fontSize:12, color:chatOpen?t.accent:t.tx2, display:"flex", alignItems:"center", gap:5 }}>
-          <Icon name="chat" size={13} color={chatOpen?t.accent:t.tx3} />Ask AI
+        <button onClick={()=>setChat(o=>!o)} style={{ background:chatOpen?"rgba(0,154,228,0.15)":"transparent", border:`1px solid ${chatOpen?"rgba(0,154,228,0.3)":t.navBd}`, borderRadius:20, padding:"6px 13px", fontSize:13, color:chatOpen?t.navActive:t.navTx2, display:"flex", alignItems:"center", gap:5 }}>
+          <Icon name="chat" size={14} color={chatOpen?t.navActive:t.navTx2} />Ask AI
         </button>
-        {isAdmin && isCat && <button onClick={onAdmin} style={{ background:"transparent", border:`1px solid ${t.bd}`, borderRadius:8, padding:"5px 11px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={13} color={t.tx3} />Add / Edit</button>}
-        <div style={{ display:"flex", alignItems:"center", gap:4, background:isAdmin?t.accentBg:t.bgMuted, border:`1px solid ${isAdmin?t.accentBd:t.bd}`, borderRadius:8, padding:"5px 10px", fontSize:11, color:isAdmin?t.accent:t.tx3 }}>
-          <Icon name={isAdmin?"shield":"lock"} size={12} color={isAdmin?t.accent:t.tx3} />{isAdmin?"Admin":"Read-only"}
+        {isAdmin && isCat && <button onClick={onAdmin} style={{ background:"transparent", border:`1px solid ${t.navBd}`, borderRadius:20, padding:"6px 13px", fontSize:13, color:t.navTx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={14} color={t.navTx2} />Add / Edit</button>}
+        <div style={{ display:"flex", alignItems:"center", gap:4, background:isAdmin?"rgba(0,154,228,0.12)":"rgba(255,255,255,0.06)", border:`1px solid ${isAdmin?"rgba(0,154,228,0.25)":t.navBd}`, borderRadius:20, padding:"6px 12px", fontSize:12, color:isAdmin?t.navActive:t.navTx2 }}>
+          <Icon name={isAdmin?"shield":"lock"} size={13} color={isAdmin?t.navActive:t.navTx2} />{isAdmin?"Admin":"Read-only"}
         </div>
-        <button onClick={()=>setDk(d=>!d)} style={{ background:"transparent", border:`1px solid ${t.bd}`, borderRadius:8, padding:"6px 9px", display:"flex", alignItems:"center" }}>
-          <Icon name={dk?"sun":"moon"} size={14} color={t.tx2} />
+        <button onClick={()=>setDk(d=>!d)} style={{ background:"transparent", border:`1px solid ${t.navBd}`, borderRadius:20, padding:"7px 10px", display:"flex", alignItems:"center" }}>
+          <Icon name={dk?"sun":"moon"} size={15} color={t.navTx2} />
         </button>
       </div>
     </nav>
-  );
-}
-
-function QBEMark({ t }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="80" height="22" viewBox="0 0 330 91">
-      <path fill={t.tx1} transform="translate(112.232 1.51061)" d="M71.761124 56.032986C70.371117 59.68837 68.147919 63.251694 65.082092 66.706711C59.39534 61.479507 53.345936 57.447754 46.951382 54.631752C40.599968 51.821171 34.251251 50.429417 27.916016 50.429417C24.966135 50.429417 22.36544 50.651447 20.13685 51.11311C17.889385 51.558521 15.811795 52.262524 13.958008 53.240002C13.521189 51.603199 13.215145 50.04763 12.989994 48.546215C12.768888 47.081352 12.685299 45.662521 12.685299 44.339817C12.685299 39.995323 13.480742 35.834953 15.106683 31.845169C16.68948 27.859446 19.013792 24.315077 22.029736 21.21883C24.829966 18.335138 28.022526 16.125662 31.641117 14.618831C35.243534 13.114708 39.037392 12.311877 43.029438 12.311877C47.521671 12.311877 51.624271 13.159385 55.292747 14.816492C58.953136 16.479015 62.372196 19.048615 65.540489 22.502277C68.251732 25.426584 70.322586 28.700184 71.742249 32.310894C73.14843 35.899937 73.864326 39.686646 73.864326 43.607384C73.864326 48.236183 73.14843 52.399261 71.761124 56.032986M49.507584 75.673233C47.521671 76.098335 45.604519 76.313599 43.735901 76.313599C38.623493 76.313599 33.849483 75.116798 29.443537 72.777351C25.010626 70.381042 21.281479 67.01403 18.260143 62.634338C19.585432 62.210583 20.930944 61.876186 22.292637 61.67717C23.663765 61.479507 25.115786 61.344124 26.579941 61.344124C31.734144 61.344124 36.812847 62.410954 41.790436 64.491814C46.773415 66.617355 51.428783 69.651321 55.768665 73.635689C53.567043 74.541412 51.469227 75.229172 49.507584 75.673233M80.676826 74.984123C79.089989 74.640244 77.516624 74.102768 76.013374 73.393356C79.591522 69.314217 82.243446 64.914215 83.998817 60.192001C85.715088 55.475201 86.610298 50.318401 86.610298 44.758152C86.610298 38.359879 85.499374 32.463879 83.320663 27.063385C81.136566 21.616861 77.876602 16.768738 73.511101 12.445908C69.337044 8.3058462 64.707291 5.181169 59.660946 3.1003077C54.584938 1.0208 49.093685 0 43.15617 0C37.380444 0 31.975473 1.0208 26.968225 3.1003077C21.948843 5.181169 17.354147 8.2855387 13.255591 12.311877C8.9332333 16.696985 5.6206837 21.526154 3.3718708 26.838646C1.1311474 32.180923 0 37.802094 0 43.718399C0 50.891075 1.4048338 57.537109 4.2158499 63.602337C7.0376511 69.693291 11.087671 74.898834 16.341642 79.15126C20.13685 82.205536 24.32304 84.52874 28.8692 86.127632C33.434235 87.718399 38.177235 88.518524 43.15617 88.518524C47.461002 88.518524 51.583828 87.943138 55.504417 86.769356C59.439838 85.617233 63.179771 83.865356 66.712082 81.58683C70.086647 83.4944 73.414024 84.9552 76.655121 85.948921C79.92318 86.90609 83.121132 87.393478 86.248978 87.393478L87.361252 87.393478L87.361252 75.498581L85.787888 75.498581C83.979942 75.498581 82.258278 75.342896 80.676826 74.984123" fillRule="evenodd"/>
-      <path fill={t.tx1} transform="translate(206.647 2.83995)" d="M45.340271 71.175751C42.651939 73.328369 38.44418 74.410095 32.729122 74.410095L12.148712 74.410095L12.148712 46.329967L32.729122 46.329967C38.223076 46.329967 42.363426 47.614769 45.185226 50.118031C47.990849 52.644306 49.401077 56.340309 49.401077 61.211445C49.401077 65.730583 48.054214 69.032616 45.340271 71.175751L45.340271 71.175751ZM12.260613 11.713477L29.72801 11.713477C34.821545 11.713477 38.612705 12.670646 41.109589 14.597169C43.576813 16.51963 44.809074 19.448 44.809074 23.4256C44.809074 27.947447 43.448734 31.177723 40.737484 33.129971C37.975002 35.079506 33.412666 36.052921 27.008671 36.052921L12.260613 36.052921L12.260613 11.713477ZM48.013767 39.732677C51.012184 37.955078 53.267738 35.702278 54.850536 32.998646C56.398281 30.274708 57.161366 27.152739 57.161366 23.585354C57.161366 15.904984 54.781776 10.052308 50.040127 6.0219078C45.272861 2.015877 38.347111 0 29.179289 0L0 0L0 86.039627L30.538282 86.039627C36.494671 86.039627 41.132511 85.577972 44.392479 84.619446C47.660538 83.670403 50.607723 82.09317 53.194935 79.905357C55.822594 77.580803 57.893444 74.633476 59.371082 71.132431C60.84737 67.612434 61.598324 63.829784 61.598324 59.81834C61.598324 54.8592 60.403809 50.581047 57.937935 46.993355C55.534081 43.407017 52.197262 40.994461 48.013767 39.732677L48.013767 39.732677Z" fillRule="evenodd"/>
-      <path fill={t.tx1} transform="translate(274.718 2.88625)" d="M54.211487 11.488738L54.211487 0L0 0L0 86.038277L54.211487 86.038277L54.211487 74.169106L12.419702 74.169106L12.419702 48.389168L51.176666 48.389168L51.176666 37.210461L12.419702 37.210461L12.419702 11.488738L54.211487 11.488738Z" fillRule="evenodd"/>
-      <path fill="#009AE4" transform="translate(1.60645 2.7122)" d="M32.660847 67.719872L44.595196 46.946461L37.695061 34.986584L22.336264 61.716919C20.684708 64.57489 21.655416 68.249229 24.50688 69.890091C27.371824 71.57563 31.003899 70.576492 32.660847 67.719872L32.660847 67.719872ZM19.39447 60.055752L26.442907 47.830521C16.166859 48.094521 7.9158192 56.553352 7.9158192 66.923813C7.9158192 77.487877 16.458071 86.052307 26.974102 86.052307L66.097778 86.052307C74.39196 86.052307 81.466019 80.719505 84.05188 73.255753C78.227615 76.199013 71.593079 76.312737 65.851059 74.072121L27.611805 74.072121C26.000694 74.097847 24.324871 73.697105 22.822966 72.8144C20.59977 71.528244 19.124828 69.44603 18.487125 67.141785C17.888521 64.83889 18.124458 62.293659 19.39447 60.055752L19.39447 60.055752ZM35.090321 23.69009L47.021969 44.420181L60.80471 44.420181L45.410862 17.691198C43.776833 14.835936 40.113747 13.858459 37.291946 15.495259C34.427002 17.159136 33.432022 20.813168 35.090321 23.69009L35.090321 23.69009ZM48.31625 15.985352L55.335026 28.209229C60.229027 19.131689 57.076912 7.7458439 48.122108 2.5619669C39.010914 -2.7126179 27.371824 0.41747451 22.123245 9.5613518L2.5620809 43.579445C-1.6065814 50.796799 -0.52262139 59.610336 4.6113586 65.639015C5.014473 59.056614 8.185461 53.232368 12.995871 49.379322L32.133698 16.116674C32.90757 14.697844 34.080513 13.459075 35.595898 12.575013C37.820442 11.291567 40.380692 11.024859 42.671299 11.642213C44.963257 12.264982 47.021969 13.744736 48.31625 15.985352L48.31625 15.985352ZM71.829018 47.808861L47.969761 47.808861L41.088501 59.790398L71.829018 59.790398C75.141563 59.790398 77.785408 57.109783 77.785408 53.813168C77.785408 50.490829 75.141563 47.808861 71.829018 47.808861L71.829018 47.808861ZM71.872162 63.156059C74.432411 63.156059 76.748634 62.094643 78.448723 60.411812C80.120506 58.727627 81.159973 56.378704 81.159973 53.813168C81.159973 52.038273 80.698883 50.401474 79.853554 49.005661L60.734604 15.766028C59.786816 9.6520596 56.394718 3.9361207 50.919643 0.34707451C58.644882 -1.1353871 66.798851 2.3439975 70.947289 9.5613518L90.509804 43.579445C95.781296 52.72332 92.650757 64.419197 83.539558 69.71138C74.569923 74.896614 63.182953 71.945229 57.806293 63.156059L71.872162 63.156059Z" fillRule="evenodd"/>
-    </svg>
   );
 }
 
@@ -526,33 +558,31 @@ function HomePage({ t, dk, ucs, videos, archs, isAdmin, onUpload, onArchUpload, 
     <div style={{ paddingBottom:60 }}>
       <div className="fade" style={{ padding:"clamp(36px,6vw,72px) 0 clamp(20px,3vw,40px)" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-          <span style={{ fontSize:11, fontWeight:600, color:t.tx3, letterSpacing:"0.08em" }}>QBE × Accenture</span>
-          <span style={{ fontSize:11, color:t.tx4 }}>·</span>
-          <span style={{ fontSize:11, color:t.accent, fontWeight:600 }}>AI Value Realization</span>
+          <span style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.08em" }}>QBE × Accenture</span>
         </div>
-        <h1 style={{ fontSize:"clamp(28px,5vw,52px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-0.03em", marginBottom:14, maxWidth:680 }}>Enterprise AI at <span style={{ color:t.accent }}>QBE</span></h1>
-        <p style={{ fontSize:"clamp(14px,1.8vw,18px)", color:t.tx2, lineHeight:1.5, maxWidth:700, marginBottom:28 }}>Generating measurable value across the insurance value chain and technology delivery — from underwriting to claims to autonomous ops.</p>
+        <h1 style={{ fontSize:"clamp(32px,5vw,56px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-0.03em", marginBottom:14, maxWidth:680 }}>Enterprise AI at <span style={{ color:t.accent }}>QBE</span></h1>
+        <p style={{ fontSize:"clamp(15px,1.8vw,19px)", color:t.tx2, lineHeight:1.55, maxWidth:700, marginBottom:28 }}>Generating measurable value across the insurance value chain and technology delivery — from underwriting to claims to autonomous ops.</p>
         <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-          <button onClick={()=>go("catalog")} style={{ background:t.accent, color:"#fff", border:"none", borderRadius:10, padding:"11px 22px", fontSize:14, fontWeight:600, display:"flex", alignItems:"center", gap:7 }}><Icon name="catalog" size={15} color="#fff" />Explore catalog</button>
-          <button onClick={()=>go("dashboard")} style={{ background:"transparent", color:t.accent, border:`1px solid ${t.accentBd}`, borderRadius:10, padding:"11px 22px", fontSize:14, fontWeight:500, display:"flex", alignItems:"center", gap:7 }}><Icon name="dashboard" size={15} color={t.accent} />View impact</button>
-          <button onClick={()=>go("journey")} style={{ background:"transparent", color:t.tx2, border:`1px solid ${t.bd}`, borderRadius:10, padding:"11px 22px", fontSize:14, display:"flex", alignItems:"center", gap:7 }}><Icon name="journey" size={15} color={t.tx3} />AI journey</button>
+          <button onClick={()=>go("catalog")} className="pill-primary"><Icon name="catalog" size={15} color="#fff" />Explore catalog</button>
+          <button onClick={()=>go("dashboard")} className="pill-secondary"><Icon name="dashboard" size={15} color={t.nav} />View impact</button>
+          <button onClick={()=>go("journey")} className="pill-primary"><Icon name="journey" size={15} color="#fff" />AI journey</button>
         </div>
       </div>
-      <div style={{ overflow:"hidden", borderTop:`1px solid ${t.bd}`, borderBottom:`1px solid ${t.bd}`, marginBottom:40, padding:"13px 0", background:t.bgMuted }}>
+      <div style={{ overflow:"hidden", borderTop:`1px solid ${t.bd}`, borderBottom:`1px solid ${t.bd}`, marginBottom:40, padding:"14px 0", background:t.bgMuted }}>
         <div style={{ display:"flex", width:"max-content", animation:"ticker 30s linear infinite" }}>
-          {[...METRICS,...METRICS].map((m,i) => { const c=PC(t,m.pillar); return <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"0 30px", borderRight:`1px solid ${t.bd}` }}><Icon name={m.icon||(m.pillar==="speed"?"speed":m.pillar==="cost"?"cost":"quality")} size={15} color={c.tx} /><span style={{ fontSize:20, fontWeight:800, color:c.tx }}>{m.value}</span><span style={{ fontSize:12, color:t.tx2, maxWidth:130, lineHeight:1.4 }}>{m.label}</span></div>; })}
+          {[...METRICS,...METRICS].map((m,i) => { const c=PC(t,m.pillar); return <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"0 30px", borderRight:`1px solid ${t.bd}` }}><Icon name={m.icon||(m.pillar==="speed"?"speed":m.pillar==="cost"?"cost":"quality")} size={16} color={c.tx} /><span style={{ fontSize:22, fontWeight:800, color:c.tx }}>{m.value}</span><span style={{ fontSize:13, color:t.tx2, maxWidth:140, lineHeight:1.4 }}>{m.label}</span></div>; })}
         </div>
       </div>
       <div style={{ marginBottom:40 }} className="fade">
         <SLabel t={t}>Explore by value pillar</SLabel>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginTop:14 }}>
-          {PILLARS.map(p => { const c=PC(t,p.id); const cnt=ucs.filter(u=>u.pillar===p.id).length; return <button key={p.id} className="card card-hover" onClick={()=>{setFP([p.id]);go("catalog");}} style={{ padding:"22px 20px", textAlign:"left", background:t.bgCard }}><div style={{ width:38, height:38, borderRadius:10, background:c.bg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}><Icon name={p.iconName} size={18} color={c.tx} /></div><div style={{ fontSize:15, fontWeight:600, marginBottom:3 }}>{p.label}</div><div style={{ fontSize:12, color:t.tx3, marginBottom:10 }}>{cnt} use cases</div><div style={{ fontSize:12, fontWeight:600, color:c.tx, display:"flex", alignItems:"center", gap:4 }}>Explore <Icon name="roi" size={12} color={c.tx} /></div></button>; })}
+          {PILLARS.map(p => { const c=PC(t,p.id); const cnt=ucs.filter(u=>u.pillar===p.id).length; return <button key={p.id} className="card card-hover" onClick={()=>{setFP([p.id]);go("catalog");}} style={{ padding:"24px 22px", textAlign:"left", background:t.bgCard }}><div style={{ width:40, height:40, borderRadius:10, background:c.bg, display:"flex", alignItems:"center", justifyContent:"center", marginBottom:12 }}><Icon name={p.iconName} size={20} color={c.tx} /></div><div style={{ fontSize:16, fontWeight:600, marginBottom:4 }}>{p.label}</div><div style={{ fontSize:13, color:t.tx3, marginBottom:10 }}>{cnt} use cases</div><div style={{ fontSize:13, fontWeight:600, color:c.tx, display:"flex", alignItems:"center", gap:4 }}>Explore <Icon name="roi" size={13} color={c.tx} /></div></button>; })}
         </div>
       </div>
       <div className="fade">
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
           <SLabel t={t}>Live solutions</SLabel>
-          <button onClick={()=>go("catalog")} style={{ background:"none", border:"none", fontSize:12, color:t.accent, fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>View all <Icon name="catalog" size={12} color={t.accent} /></button>
+          <button onClick={()=>go("catalog")} style={{ background:"none", border:"none", fontSize:13, color:t.accent, fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>View all <Icon name="catalog" size={13} color={t.accent} /></button>
         </div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))", gap:12 }}>
           {live.map((uc,i) => <UCCard key={uc.id} uc={uc} t={t} dk={dk} hasVideo={!!videos[uc.id]} hasArch={!!archs[uc.id]} isAdmin={isAdmin} onUpload={onUpload} onArchUpload={onArchUpload} onClick={()=>go("detail",uc.id)} idx={i} />)}
@@ -570,35 +600,35 @@ function JourneyPage({ t, dk, go }) {
   const phB = dk ? ["rgba(62,203,160,0.1)","rgba(107,173,245,0.1)","rgba(158,128,245,0.1)"] : ["#E7F7F3","#E8F0FC","#EEE9FC"];
   return (
     <div style={{ padding:"28px 0 60px" }} className="fade">
-      <button onClick={()=>go("home")} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:8, padding:"6px 12px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5, marginBottom:24 }}><Icon name="back" size={14} color={t.tx2} />Back</button>
-      <div style={{ fontSize:11, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Enterprise AI journey</div>
-      <h2 style={{ fontSize:"clamp(22px,4vw,40px)", fontWeight:800, letterSpacing:"-0.03em", marginBottom:6 }}>From experimentation to exponential impact</h2>
-      <p style={{ fontSize:14, color:t.tx2, marginBottom:32, maxWidth:580, lineHeight:1.65 }}>QBE's progression from early AI pilots to scalable, agentic solutions delivering measurable impact across the enterprise.</p>
-      <div className="card" style={{ padding:"22px clamp(14px,3vw,30px) 18px", marginBottom:20 }}>
-        <div style={{ position:"relative", height:4, background:t.bgDeep, borderRadius:2, margin:"0 8% 20px" }}>
-          <div style={{ position:"absolute", top:0, left:0, height:"100%", borderRadius:2, background:`linear-gradient(90deg,${t.green},${active>=1?t.blue:t.green},${active>=2?t.purple:t.green})`, width:active===0?"0%":active===1?"50%":"100%", transition:"width 0.6s cubic-bezier(.4,0,.2,1)" }} />
-          {JOURNEY.map((_,i) => { const pos=i===0?0:i===1?50:100; return <div key={i} onClick={()=>setActive(i)} style={{ position:"absolute", top:"50%", left:`${pos}%`, transform:"translate(-50%,-50%)", cursor:"pointer", zIndex:2 }}><div style={{ width:16, height:16, borderRadius:"50%", background:i<=active?phC[i]:t.bgDeep, border:`3px solid ${t.bgCard}`, transition:"all 0.4s", boxShadow:i<=active?`0 0 0 3px ${phC[i]}33`:"none" }} /></div>; })}
+      <button onClick={()=>go("home")} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:20, padding:"7px 16px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5, marginBottom:24 }}><Icon name="back" size={15} color={t.tx2} />Back</button>
+      <div style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase", marginBottom:8 }}>Enterprise AI journey</div>
+      <h2 style={{ fontSize:"clamp(26px,4vw,44px)", fontWeight:800, letterSpacing:"-0.03em", marginBottom:8 }}>From Experimentation to Exponential Impact</h2>
+      <p style={{ fontSize:16, color:t.tx2, marginBottom:32, maxWidth:600, lineHeight:1.65 }}>QBE's progression from early AI pilots to scalable, agentic solutions delivering measurable impact across the enterprise.</p>
+      <div className="card" style={{ padding:"24px clamp(16px,3vw,32px) 20px", marginBottom:22 }}>
+        <div style={{ position:"relative", height:5, background:t.bgDeep, borderRadius:3, margin:"0 8% 22px" }}>
+          <div style={{ position:"absolute", top:0, left:0, height:"100%", borderRadius:3, background:`linear-gradient(90deg,${t.green},${active>=1?t.blue:t.green},${active>=2?t.purple:t.green})`, width:active===0?"0%":active===1?"50%":"100%", transition:"width 0.6s cubic-bezier(.4,0,.2,1)" }} />
+          {JOURNEY.map((_,i) => { const pos=i===0?0:i===1?50:100; return <div key={i} onClick={()=>setActive(i)} style={{ position:"absolute", top:"50%", left:`${pos}%`, transform:"translate(-50%,-50%)", cursor:"pointer", zIndex:2 }}><div style={{ width:18, height:18, borderRadius:"50%", background:i<=active?phC[i]:t.bgDeep, border:`3px solid ${t.bgCard}`, transition:"all 0.4s", boxShadow:i<=active?`0 0 0 3px ${phC[i]}33`:"none" }} /></div>; })}
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8 }}>
-          {JOURNEY.map((ph,i) => <button key={i} onClick={()=>setActive(i)} style={{ background:active===i?phB[i]:t.bgMuted, border:`1px solid ${active===i?phC[i]+"55":t.bd}`, borderRadius:10, padding:"14px 14px 12px", textAlign:"left", transition:"all 0.2s" }}><div style={{ marginBottom:10 }}><PhaseIcon phase={i} color={phC[i]} size={28} /></div><div style={{ fontSize:11, fontWeight:600, color:phC[i], marginBottom:2 }}>{ph.phase}</div><div style={{ fontSize:13, fontWeight:600, color:t.tx1, marginBottom:2 }}>{ph.label}</div><div style={{ fontSize:11, color:t.tx3, fontStyle:"italic" }}>{ph.sub}</div></button>)}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
+          {JOURNEY.map((ph,i) => <button key={i} onClick={()=>setActive(i)} style={{ background:active===i?phB[i]:t.bgMuted, border:`1.5px solid ${active===i?phC[i]+"66":t.bd}`, borderRadius:12, padding:"18px 18px 16px", textAlign:"left", transition:"all 0.2s" }}><div style={{ marginBottom:12 }}><PhaseIcon phase={i} color={phC[i]} size={32} /></div><div style={{ fontSize:14, fontWeight:700, color:phC[i], marginBottom:3 }}>{ph.phase}</div><div style={{ fontSize:16, fontWeight:700, color:t.tx1, marginBottom:3, lineHeight:1.3 }}>{ph.label}</div><div style={{ fontSize:13, color:t.tx3, fontStyle:"italic" }}>{ph.sub}</div></button>)}
         </div>
       </div>
       <div key={active} className="fade">
-        <div className="card" style={{ padding:"18px 22px", marginBottom:12 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:12 }}><Icon name="star" size={14} color={phC[active]} /><span style={{ fontSize:11, fontWeight:600, color:phC[active], letterSpacing:"0.1em", textTransform:"uppercase" }}>Strategic milestones</span></div>
-          {j.milestones.map((m,i) => <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:i<j.milestones.length-1?10:0 }}><div style={{ width:22, height:22, borderRadius:"50%", background:phB[active], color:phC[active], display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, flexShrink:0, marginTop:1 }}>{i+1}</div><div style={{ fontSize:13, color:t.tx2, lineHeight:1.6, paddingTop:2 }}>{m}</div></div>)}
+        <div className="card" style={{ padding:"20px 24px", marginBottom:14 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}><Icon name="star" size={15} color={phC[active]} /><span style={{ fontSize:12, fontWeight:600, color:phC[active], letterSpacing:"0.1em", textTransform:"uppercase" }}>Strategic milestones</span></div>
+          {j.milestones.map((m,i) => <div key={i} style={{ display:"flex", gap:10, alignItems:"flex-start", marginBottom:i<j.milestones.length-1?12:0 }}><div style={{ width:24, height:24, borderRadius:"50%", background:phB[active], color:phC[active], display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:700, flexShrink:0, marginTop:1 }}>{i+1}</div><div style={{ fontSize:14, color:t.tx2, lineHeight:1.6, paddingTop:2 }}>{m}</div></div>)}
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:10, marginBottom:28 }}>
-          {j.highlights.map((h,i) => <div key={i} className="card" style={{ padding:"15px 17px", borderLeft:`3px solid ${phC[active]}` }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}><span style={{ background:phB[active], padding:"2px 8px", borderRadius:20, display:"flex", alignItems:"center", gap:4 }}><Icon name={h.icon} size={11} color={phC[active]} /><span style={{ fontSize:10, fontWeight:600, color:phC[active] }}>{h.tag}</span></span></div><div style={{ fontSize:13, fontWeight:600, marginBottom:4 }}>{h.title}</div><div style={{ fontSize:12, color:t.tx2, lineHeight:1.5 }}>{h.desc}</div></div>)}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(240px,1fr))", gap:12, marginBottom:28 }}>
+          {j.highlights.map((h,i) => <div key={i} className="card" style={{ padding:"17px 19px", borderLeft:`3px solid ${phC[active]}`, borderRadius:0 }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:9 }}><span style={{ background:phB[active], padding:"3px 10px", borderRadius:20, display:"flex", alignItems:"center", gap:4 }}><Icon name={h.icon} size={12} color={phC[active]} /><span style={{ fontSize:11, fontWeight:600, color:phC[active] }}>{h.tag}</span></span></div><div style={{ fontSize:15, fontWeight:600, marginBottom:5 }}>{h.title}</div><div style={{ fontSize:13, color:t.tx2, lineHeight:1.55 }}>{h.desc}</div></div>)}
         </div>
       </div>
-      <div style={{ background:`linear-gradient(135deg,${t.accent}ee,${t.blue}cc)`, borderRadius:14, padding:"22px 26px", color:"#fff", marginBottom:24 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}><Icon name="bolt" size={16} color="#fff" /><span style={{ fontSize:15, fontWeight:700 }}>AI-first talent transformation</span></div>
-        <div style={{ fontSize:13, lineHeight:1.7, opacity:0.92 }}>QBE and Accenture are embedding AI capability at every level of the organisation — from executive GenAI literacy programmes to hands-on delivery teams co-building agentic solutions. This ensures AI adoption is sustained, governed and commercially impactful at scale.</div>
+      <div style={{ background:`linear-gradient(135deg,${dk?"#0A1E35":"#003057"}ee,${t.blue}cc)`, borderRadius:14, padding:"24px 28px", color:"#fff", marginBottom:26 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}><Icon name="bolt" size={17} color="#fff" /><span style={{ fontSize:17, fontWeight:700 }}>AI-first talent transformation</span></div>
+        <div style={{ fontSize:14, lineHeight:1.7, opacity:0.92 }}>QBE and Accenture are embedding AI capability at every level of the organisation — from executive GenAI literacy programmes to hands-on delivery teams co-building agentic solutions. This ensures AI adoption is sustained, governed and commercially impactful at scale.</div>
       </div>
       <SLabel t={t}>Cumulative impact</SLabel>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10, marginTop:12, marginBottom:24 }}>
-        {METRICS.map((m,i) => { const c=PC(t,m.pillar); return <div key={i} className="card" style={{ padding:"14px 16px", textAlign:"center" }}><Icon name={m.icon||(m.pillar==="speed"?"speed":m.pillar==="cost"?"cost":"quality")} size={16} color={c.tx} style={{ margin:"0 auto 6px" }} /><div style={{ fontSize:22, fontWeight:800, color:c.tx, marginBottom:3 }}>{m.value}</div><div style={{ fontSize:11, color:t.tx2, lineHeight:1.4 }}>{m.label}</div></div>; })}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))", gap:10, marginTop:12, marginBottom:24 }}>
+        {METRICS.map((m,i) => { const c=PC(t,m.pillar); return <div key={i} className="card" style={{ padding:"16px 18px", textAlign:"center" }}><Icon name={m.icon||(m.pillar==="speed"?"speed":m.pillar==="cost"?"cost":"quality")} size={17} color={c.tx} style={{ margin:"0 auto 7px" }} /><div style={{ fontSize:24, fontWeight:800, color:c.tx, marginBottom:4 }}>{m.value}</div><div style={{ fontSize:12, color:t.tx2, lineHeight:1.4 }}>{m.label}</div></div>; })}
       </div>
     </div>
   );
@@ -619,26 +649,26 @@ function DashboardPage({ t, dk, ucs, go }) {
   const updateFte=(id,k,v)=>setFteRows(p=>p.map(r=>r.id===id?{...r,[k]:v}:r));
   return (
     <div style={{ padding:"28px 0 60px" }} className="fade">
-      <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:6 }}><Icon name="dashboard" size={18} color={t.accent} /><span style={{ fontSize:11, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase" }}>Impact dashboard</span></div>
-      <h2 style={{ fontSize:"clamp(22px,4vw,36px)", fontWeight:800, letterSpacing:"-0.02em", marginBottom:6 }}>AI value realization at QBE</h2>
-      <p style={{ fontSize:14, color:t.tx2, marginBottom:28, maxWidth:560, lineHeight:1.6 }}>Aggregate impact across all live AI initiatives — measuring financial return, operational efficiency and portfolio maturity.</p>
+      <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:6 }}><Icon name="dashboard" size={19} color={t.accent} /><span style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase" }}>Impact dashboard</span></div>
+      <h2 style={{ fontSize:"clamp(26px,4vw,42px)", fontWeight:800, letterSpacing:"-0.02em", marginBottom:8 }}>AI value realization at QBE</h2>
+      <p style={{ fontSize:16, color:t.tx2, marginBottom:28, maxWidth:580, lineHeight:1.6 }}>Aggregate impact across all live AI initiatives — measuring financial return, operational efficiency and portfolio maturity.</p>
       <SLabel t={t}>Portfolio summary</SLabel>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))", gap:10, marginTop:12, marginBottom:32 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))", gap:10, marginTop:12, marginBottom:32 }}>
         {[{label:"Total use cases",value:ucs.length,icon:"catalog",color:t.accent},{label:"Live in production",value:live,icon:"check",color:t.green},{label:"In development",value:inDev,icon:"bolt",color:t.blue},{label:"On roadmap",value:roadmap,icon:"journey",color:t.purple},{label:"NB GWP uplift",value:"~$10M",icon:"cost",color:t.green},{label:"CSAT score",value:"94%",icon:"star",color:t.amber}].map((k,i)=>(
-          <div key={i} className="card" style={{ padding:"16px 14px", textAlign:"center" }}><div style={{ display:"flex", justifyContent:"center", marginBottom:8 }}><Icon name={k.icon} size={18} color={k.color} /></div><div style={{ fontSize:24, fontWeight:800, color:k.color, marginBottom:4 }}>{k.value}</div><div style={{ fontSize:11, color:t.tx2, lineHeight:1.4 }}>{k.label}</div></div>
+          <div key={i} className="card" style={{ padding:"18px 16px", textAlign:"center" }}><div style={{ display:"flex", justifyContent:"center", marginBottom:8 }}><Icon name={k.icon} size={19} color={k.color} /></div><div style={{ fontSize:26, fontWeight:800, color:k.color, marginBottom:4 }}>{k.value}</div><div style={{ fontSize:12, color:t.tx2, lineHeight:1.4 }}>{k.label}</div></div>
         ))}
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
         <SLabel t={t}>ROI breakdown — live solutions</SLabel>
-        <button onClick={addRoiRow} style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:8, padding:"5px 12px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={13} color={t.tx3} />Add row</button>
+        <button onClick={addRoiRow} style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:20, padding:"6px 14px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={14} color={t.tx3} />Add row</button>
       </div>
       <div style={{ marginBottom:32, overflowX:"auto" }}>
-        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-          <thead><tr style={{ background:t.bgMuted }}>{["Solution","Pillar","Time: before","Time: after","Time saved %","Financial return","Investment",""].map((h,i)=><th key={i} style={{ padding:"10px 14px", textAlign:i===0?"left":"center", fontWeight:600, color:t.tx2, fontSize:11, whiteSpace:"nowrap", borderBottom:`1px solid ${t.bd}` }}>{h}</th>)}</tr></thead>
+        <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14 }}>
+          <thead><tr style={{ background:t.bgMuted }}>{["Solution","Pillar","Time: before","Time: after","Time saved %","Financial return","Investment",""].map((h,i)=><th key={i} style={{ padding:"11px 14px", textAlign:i===0?"left":"center", fontWeight:600, color:t.tx2, fontSize:12, whiteSpace:"nowrap", borderBottom:`1px solid ${t.bd}` }}>{h}</th>)}</tr></thead>
           <tbody>
             {roiRows.map(r => {
               const pc=PC(t,r.pillar); const pil=PILLARS.find(p=>p.id===r.pillar); const isEditing=editingRoi===r.id;
-              const inpS={padding:"4px 7px",border:`1px solid ${t.accent}`,borderRadius:6,fontSize:12,background:t.bgMuted,color:t.tx1,outline:"none",width:"100%"};
+              const inpS={padding:"5px 8px",border:`1px solid ${t.accent}`,borderRadius:6,fontSize:13,background:t.bgMuted,color:t.tx1,outline:"none",width:"100%"};
               return isEditing ? (
                 <tr key={r.id} style={{ borderBottom:`1px solid ${t.bd}`, background:t.accentBg }}>
                   <td style={{ padding:"8px 10px" }}><input value={r.label} onChange={e=>updateRoi(r.id,"label",e.target.value)} style={{ ...inpS, minWidth:120 }} /></td>
@@ -648,18 +678,18 @@ function DashboardPage({ t, dk, ucs, go }) {
                   <td style={{ padding:"8px 10px" }}><input type="number" min="0" max="100" value={r.pct} onChange={e=>updateRoi(r.id,"pct",Number(e.target.value))} style={{ ...inpS, minWidth:60 }} /></td>
                   <td style={{ padding:"8px 10px" }}><input value={r.gwp} onChange={e=>updateRoi(r.id,"gwp",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
                   <td style={{ padding:"8px 10px" }}><input value={r.cost} onChange={e=>updateRoi(r.id,"cost",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
-                  <td style={{ padding:"8px 10px", textAlign:"center", whiteSpace:"nowrap" }}><button onClick={()=>setEditingRoi(null)} style={{ background:t.green, border:"none", borderRadius:6, padding:"4px 10px", fontSize:11, color:"#fff", fontWeight:600, marginRight:4 }}>Done</button><button onClick={()=>removeRoiRow(r.id)} style={{ background:"none", border:`1px solid ${t.red}`, borderRadius:6, padding:"4px 8px", fontSize:11, color:t.red }}><Icon name="trash" size={11} color={t.red} /></button></td>
+                  <td style={{ padding:"8px 10px", textAlign:"center", whiteSpace:"nowrap" }}><button onClick={()=>setEditingRoi(null)} style={{ background:t.green, border:"none", borderRadius:20, padding:"5px 12px", fontSize:12, color:"#fff", fontWeight:600, marginRight:4 }}>Done</button><button onClick={()=>removeRoiRow(r.id)} style={{ background:"none", border:`1px solid ${t.red}`, borderRadius:20, padding:"5px 9px", fontSize:12, color:t.red }}><Icon name="trash" size={12} color={t.red} /></button></td>
                 </tr>
               ) : (
                 <tr key={r.id} style={{ borderBottom:`1px solid ${t.bd}` }} onMouseEnter={e=>e.currentTarget.style.background=t.bgMuted} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                   <td style={{ padding:"12px 14px", fontWeight:600 }}>{r.label}</td>
-                  <td style={{ padding:"12px 14px", textAlign:"center" }}><span style={{ background:pc.bg, color:pc.tx, fontSize:10, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}><Icon name={pil?.iconName||"star"} size={10} color={pc.tx} />{pil?.label}</span></td>
-                  <td style={{ padding:"12px 14px", textAlign:"center", color:t.tx3, fontSize:12 }}>{r.timeFrom}</td>
-                  <td style={{ padding:"12px 14px", textAlign:"center", color:t.green, fontWeight:600, fontSize:12 }}>{r.timeTo}</td>
-                  <td style={{ padding:"12px 14px", textAlign:"center" }}><div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><div style={{ width:60, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${r.pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:11, color:t.green, fontWeight:600 }}>{r.pct}%</span></div></td>
+                  <td style={{ padding:"12px 14px", textAlign:"center" }}><span style={{ background:pc.bg, color:pc.tx, fontSize:11, fontWeight:500, padding:"3px 11px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}><Icon name={pil?.iconName||"star"} size={11} color={pc.tx} />{pil?.label}</span></td>
+                  <td style={{ padding:"12px 14px", textAlign:"center", color:t.tx3, fontSize:13 }}>{r.timeFrom}</td>
+                  <td style={{ padding:"12px 14px", textAlign:"center", color:t.green, fontWeight:600, fontSize:13 }}>{r.timeTo}</td>
+                  <td style={{ padding:"12px 14px", textAlign:"center" }}><div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><div style={{ width:60, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${r.pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:12, color:t.green, fontWeight:600 }}>{r.pct}%</span></div></td>
                   <td style={{ padding:"12px 14px", textAlign:"center", fontWeight:600, color:r.gwp==="—"?t.tx3:t.green }}>{r.gwp}</td>
                   <td style={{ padding:"12px 14px", textAlign:"center", color:t.tx2 }}>{r.cost}</td>
-                  <td style={{ padding:"12px 14px", textAlign:"center" }}><button onClick={()=>setEditingRoi(r.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 10px", fontSize:10, color:t.tx3, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="edit" size={11} color={t.tx3} />Edit</button></td>
+                  <td style={{ padding:"12px 14px", textAlign:"center" }}><button onClick={()=>setEditingRoi(r.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", fontSize:11, color:t.tx3, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="edit" size={12} color={t.tx3} />Edit</button></td>
                 </tr>
               );
             })}
@@ -667,43 +697,43 @@ function DashboardPage({ t, dk, ucs, go }) {
         </table>
       </div>
       <SLabel t={t}>FTE productivity savings</SLabel>
-      <div className="card" style={{ padding:"18px 20px", marginTop:12, marginBottom:32 }}>
+      <div className="card" style={{ padding:"20px 22px", marginTop:12, marginBottom:32 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ width:44, height:44, borderRadius:12, background:t.greenBg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name="person" size={22} color={t.green} /></div><div><div style={{ fontSize:28, fontWeight:800, color:t.green, lineHeight:1 }}>{totalFte}</div><div style={{ fontSize:11, color:t.tx3, marginTop:2 }}>total FTEs freed</div></div></div>
-          <button onClick={addFteRow} style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:8, padding:"6px 12px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={13} color={t.tx3} />Add row</button>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ width:46, height:46, borderRadius:12, background:t.greenBg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name="person" size={24} color={t.green} /></div><div><div style={{ fontSize:30, fontWeight:800, color:t.green, lineHeight:1 }}>{totalFte}</div><div style={{ fontSize:12, color:t.tx3, marginTop:2 }}>total FTEs freed</div></div></div>
+          <button onClick={addFteRow} style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:20, padding:"6px 14px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={14} color={t.tx3} />Add row</button>
         </div>
         <div style={{ borderTop:`1px solid ${t.bd}`, paddingTop:12 }}>
           {fteRows.map((row,i) => { const pct=totalFte>0?Math.round((row.fte/totalFte)*100):0; const isEditing=editingFte===row.id; return (
             <div key={row.id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:i<fteRows.length-1?10:0 }}>
-              {isEditing ? <><input value={row.label} onChange={e=>updateFte(row.id,"label",e.target.value)} style={{ flex:1, padding:"5px 8px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:12, background:t.bgMuted, color:t.tx1, outline:"none" }} /><input type="number" value={row.fte} onChange={e=>updateFte(row.id,"fte",e.target.value)} style={{ width:64, padding:"5px 8px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:12, background:t.bgMuted, color:t.tx1, textAlign:"center", outline:"none" }} /><button onClick={()=>setEditingFte(null)} style={{ background:t.green, border:"none", borderRadius:6, padding:"5px 10px", fontSize:11, color:"#fff", fontWeight:600 }}>Done</button></>
-              : <><span style={{ fontSize:12, color:t.tx2, flex:1 }}>{row.label}</span><div style={{ width:80, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:12, fontWeight:700, color:t.green, minWidth:28, textAlign:"right" }}>{row.fte}</span><button onClick={()=>setEditingFte(row.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center" }}><Icon name="edit" size={10} color={t.tx3} /></button><button onClick={()=>removeFteRow(row.id)} style={{ background:"none", border:"none", padding:"3px 4px", color:t.tx4, display:"flex", alignItems:"center" }}><Icon name="close" size={10} color={t.tx4} /></button></>}
+              {isEditing ? <><input value={row.label} onChange={e=>updateFte(row.id,"label",e.target.value)} style={{ flex:1, padding:"6px 9px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:13, background:t.bgMuted, color:t.tx1, outline:"none" }} /><input type="number" value={row.fte} onChange={e=>updateFte(row.id,"fte",e.target.value)} style={{ width:66, padding:"6px 9px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:13, background:t.bgMuted, color:t.tx1, textAlign:"center", outline:"none" }} /><button onClick={()=>setEditingFte(null)} style={{ background:t.green, border:"none", borderRadius:20, padding:"6px 12px", fontSize:12, color:"#fff", fontWeight:600 }}>Done</button></>
+              : <><span style={{ fontSize:13, color:t.tx2, flex:1 }}>{row.label}</span><div style={{ width:80, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:13, fontWeight:700, color:t.green, minWidth:28, textAlign:"right" }}>{row.fte}</span><button onClick={()=>setEditingFte(row.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 9px", fontSize:11, color:t.tx3, display:"flex", alignItems:"center" }}><Icon name="edit" size={11} color={t.tx3} /></button><button onClick={()=>removeFteRow(row.id)} style={{ background:"none", border:"none", padding:"3px 4px", color:t.tx4, display:"flex", alignItems:"center" }}><Icon name="close" size={11} color={t.tx4} /></button></>}
             </div>
           ); })}
         </div>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:32 }}>
-        <div className="card" style={{ padding:"20px 22px" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:4 }}><Icon name="chart" size={15} color={t.accent} /><span style={{ fontSize:13, fontWeight:600 }}>Effort reduction — before vs. after AI</span></div>
-          <p style={{ fontSize:12, color:t.tx3, marginBottom:16 }}>Normalised to 100% = pre-AI baseline</p>
-          {BAR_DATA.map((d,i) => <div key={i} style={{ marginBottom:14 }}><div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:12, color:t.tx2, fontWeight:500 }}>{d.label}</span><span style={{ fontSize:11, color:t.tx3 }}>{d.desc}</span></div><div style={{ display:"flex", gap:4, alignItems:"center" }}><div style={{ flex:1, height:10, borderRadius:5, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${d.after}%`, height:"100%", background:t.green, borderRadius:5 }} /></div><span style={{ fontSize:11, fontWeight:700, color:t.green, minWidth:34, textAlign:"right" }}>{d.after}%</span></div></div>)}
-          <div style={{ display:"flex", gap:12, marginTop:4 }}><div style={{ display:"flex", alignItems:"center", gap:5 }}><div style={{ width:10, height:10, borderRadius:2, background:t.bgDeep, border:`1px solid ${t.bd}` }} /><span style={{ fontSize:11, color:t.tx3 }}>Before (100%)</span></div><div style={{ display:"flex", alignItems:"center", gap:5 }}><div style={{ width:10, height:10, borderRadius:2, background:t.green }} /><span style={{ fontSize:11, color:t.tx3 }}>After AI</span></div></div>
+        <div className="card" style={{ padding:"22px 24px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}><Icon name="chart" size={16} color={t.accent} /><span style={{ fontSize:15, fontWeight:600 }}>Effort reduction — before vs. after AI</span></div>
+          <p style={{ fontSize:13, color:t.tx3, marginBottom:16 }}>Normalised to 100% = pre-AI baseline</p>
+          {BAR_DATA.map((d,i) => <div key={i} style={{ marginBottom:14 }}><div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}><span style={{ fontSize:13, color:t.tx2, fontWeight:500 }}>{d.label}</span><span style={{ fontSize:12, color:t.tx3 }}>{d.desc}</span></div><div style={{ display:"flex", gap:4, alignItems:"center" }}><div style={{ flex:1, height:10, borderRadius:5, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${d.after}%`, height:"100%", background:t.green, borderRadius:5 }} /></div><span style={{ fontSize:12, fontWeight:700, color:t.green, minWidth:34, textAlign:"right" }}>{d.after}%</span></div></div>)}
+          <div style={{ display:"flex", gap:12, marginTop:4 }}><div style={{ display:"flex", alignItems:"center", gap:5 }}><div style={{ width:10, height:10, borderRadius:2, background:t.bgDeep, border:`1px solid ${t.bd}` }} /><span style={{ fontSize:12, color:t.tx3 }}>Before (100%)</span></div><div style={{ display:"flex", alignItems:"center", gap:5 }}><div style={{ width:10, height:10, borderRadius:2, background:t.green }} /><span style={{ fontSize:12, color:t.tx3 }}>After AI</span></div></div>
         </div>
-        <div className="card" style={{ padding:"20px 22px" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:4 }}><Icon name="target" size={15} color={t.accent} /><span style={{ fontSize:13, fontWeight:600 }}>Portfolio status</span></div>
-          <p style={{ fontSize:12, color:t.tx3, marginBottom:16 }}>{ucs.length} use cases across business & technology</p>
+        <div className="card" style={{ padding:"22px 24px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}><Icon name="target" size={16} color={t.accent} /><span style={{ fontSize:15, fontWeight:600 }}>Portfolio status</span></div>
+          <p style={{ fontSize:13, color:t.tx3, marginBottom:16 }}>{ucs.length} use cases across business & technology</p>
           <DonutChart t={t} live={live} inDev={inDev} roadmap={roadmap} />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginTop:16 }}>
-            {[{label:"Live",count:live,color:t.green},{label:"In development",count:inDev,color:t.blue},{label:"Roadmap",count:roadmap,color:t.purple}].map(s=><div key={s.label} style={{ textAlign:"center", background:t.bgMuted, borderRadius:8, padding:"10px 6px" }}><div style={{ fontSize:20, fontWeight:800, color:s.color, marginBottom:2 }}>{s.count}</div><div style={{ fontSize:10, color:t.tx2, lineHeight:1.4 }}>{s.label}</div></div>)}
+            {[{label:"Live",count:live,color:t.green},{label:"In development",count:inDev,color:t.blue},{label:"Roadmap",count:roadmap,color:t.purple}].map(s=><div key={s.label} style={{ textAlign:"center", background:t.bgMuted, borderRadius:8, padding:"10px 6px" }}><div style={{ fontSize:22, fontWeight:800, color:s.color, marginBottom:2 }}>{s.count}</div><div style={{ fontSize:11, color:t.tx2, lineHeight:1.4 }}>{s.label}</div></div>)}
           </div>
         </div>
       </div>
       <SLabel t={t}>Use cases by value pillar</SLabel>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginTop:12, marginBottom:32 }}>
-        {PILLARS.map(p => { const c=PC(t,p.id); const cnt=ucs.filter(u=>u.pillar===p.id).length; const liveCnt=ucs.filter(u=>u.pillar===p.id&&u.status==="Live").length; const pct=Math.round((liveCnt/cnt)*100)||0; return <div key={p.id} className="card" style={{ padding:"18px 20px" }}><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}><div style={{ width:36, height:36, borderRadius:10, background:c.bg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name={p.iconName} size={17} color={c.tx} /></div><span style={{ fontSize:22, fontWeight:800, color:c.tx }}>{cnt}</span></div><div style={{ fontSize:14, fontWeight:600, marginBottom:3 }}>{p.label}</div><div style={{ fontSize:12, color:t.tx3, marginBottom:10 }}>{liveCnt} live · {cnt-liveCnt} pipeline</div><div style={{ height:5, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ height:"100%", width:`${pct}%`, background:c.tx, borderRadius:3 }} /></div><div style={{ fontSize:10, color:c.tx, marginTop:4, fontWeight:600 }}>{pct}% live</div></div>; })}
+        {PILLARS.map(p => { const c=PC(t,p.id); const cnt=ucs.filter(u=>u.pillar===p.id).length; const liveCnt=ucs.filter(u=>u.pillar===p.id&&u.status==="Live").length; const pct=Math.round((liveCnt/cnt)*100)||0; return <div key={p.id} className="card" style={{ padding:"20px 22px" }}><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}><div style={{ width:38, height:38, borderRadius:10, background:c.bg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name={p.iconName} size={18} color={c.tx} /></div><span style={{ fontSize:24, fontWeight:800, color:c.tx }}>{cnt}</span></div><div style={{ fontSize:16, fontWeight:600, marginBottom:3 }}>{p.label}</div><div style={{ fontSize:13, color:t.tx3, marginBottom:10 }}>{liveCnt} live · {cnt-liveCnt} pipeline</div><div style={{ height:5, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ height:"100%", width:`${pct}%`, background:c.tx, borderRadius:3 }} /></div><div style={{ fontSize:11, color:c.tx, marginTop:4, fontWeight:600 }}>{pct}% live</div></div>; })}
       </div>
       <SLabel t={t}>Deployment footprint</SLabel>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12, marginTop:12 }}>
-        {DEPLOYMENT.map((d,i) => { const sc=SC(t,d.status); return <div key={i} className="card" style={{ padding:"16px 18px" }}><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><Icon name="globe" size={14} color={t.accent} /><span style={{ fontSize:13, fontWeight:600 }}>{d.region}</span></div><span style={{ background:sc.bg, color:sc.tx, fontSize:10, fontWeight:500, padding:"2px 8px", borderRadius:20, display:"flex", alignItems:"center", gap:4 }}>{d.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{d.status}</span></div>{d.ucs.map((u,j)=><div key={j} style={{ display:"flex", alignItems:"center", gap:5, marginBottom:4, fontSize:12, color:t.tx2 }}><Icon name="check" size={11} color={d.status==="Live"?t.green:t.blue} />{u}</div>)}</div>; })}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:12, marginTop:12 }}>
+        {DEPLOYMENT.map((d,i) => { const sc=SC(t,d.status); return <div key={i} className="card" style={{ padding:"18px 20px" }}><div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}><div style={{ display:"flex", alignItems:"center", gap:6 }}><Icon name="globe" size={15} color={t.accent} /><span style={{ fontSize:14, fontWeight:600 }}>{d.region}</span></div><span style={{ background:sc.bg, color:sc.tx, fontSize:11, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"flex", alignItems:"center", gap:4 }}>{d.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{d.status}</span></div>{d.ucs.map((u,j)=><div key={j} style={{ display:"flex", alignItems:"center", gap:5, marginBottom:5, fontSize:13, color:t.tx2 }}><Icon name="check" size={12} color={d.status==="Live"?t.green:t.blue} />{u}</div>)}</div>; })}
       </div>
     </div>
   );
@@ -720,11 +750,11 @@ function DonutChart({ t, live, inDev, roadmap }) {
       <svg width={140} height={140} viewBox="0 0 140 140">
         <circle cx={cx} cy={cy} r={r} fill="none" stroke={t.bgDeep} strokeWidth={stroke} />
         {rendered.map((s,i)=><circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={stroke} strokeDasharray={s.da} strokeDashoffset={s.do} transform={`rotate(-90 ${cx} ${cy})`} />)}
-        <text x={cx} y={cy-6} textAnchor="middle" fill={t.tx1} fontSize="22" fontWeight="800">{total}</text>
-        <text x={cx} y={cy+12} textAnchor="middle" fill={t.tx3} fontSize="10">total</text>
+        <text x={cx} y={cy-6} textAnchor="middle" fill={t.tx1} fontSize="24" fontWeight="800">{total}</text>
+        <text x={cx} y={cy+12} textAnchor="middle" fill={t.tx3} fontSize="11">total</text>
       </svg>
       <div style={{ flex:1 }}>
-        {[{label:"Live",count:live,color:t.green},{label:"In dev",count:inDev,color:t.blue},{label:"Roadmap",count:roadmap,color:t.purple}].map((s,i)=><div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}><div style={{ width:10, height:10, borderRadius:2, background:s.color, flexShrink:0 }} /><span style={{ fontSize:12, color:t.tx2, flex:1 }}>{s.label}</span><span style={{ fontSize:12, fontWeight:600, color:s.color }}>{s.count}</span></div>)}
+        {[{label:"Live",count:live,color:t.green},{label:"In dev",count:inDev,color:t.blue},{label:"Roadmap",count:roadmap,color:t.purple}].map((s,i)=><div key={i} style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}><div style={{ width:10, height:10, borderRadius:2, background:s.color, flexShrink:0 }} /><span style={{ fontSize:13, color:t.tx2, flex:1 }}>{s.label}</span><span style={{ fontSize:13, fontWeight:600, color:s.color }}>{s.count}</span></div>)}
       </div>
     </div>
   );
@@ -737,36 +767,36 @@ function CatalogPage({ t, dk, ucs, allUcs, videos, archs, isAdmin, onUpload, onA
   const toggleSort=k=>setSort(s=>s.key===k?{key:k,dir:-s.dir}:{key:k,dir:1});
   return (
     <div style={{ padding:"28px 0 60px" }} className="fade">
-      <h2 style={{ fontSize:22, fontWeight:700, letterSpacing:"-0.02em", marginBottom:5 }}>Use case catalog</h2>
-      <p style={{ fontSize:14, color:t.tx2, marginBottom:20 }}>All AI initiatives across QBE — filter by domain, pillar or status.</p>
+      <h2 style={{ fontSize:24, fontWeight:700, letterSpacing:"-0.02em", marginBottom:6 }}>Use case catalog</h2>
+      <p style={{ fontSize:16, color:t.tx2, marginBottom:20 }}>All AI initiatives across QBE — filter by domain, pillar or status.</p>
       <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14, alignItems:"center" }}>
-        <span style={{ fontSize:12, fontWeight:700, color:t.tx1, marginRight:2 }}>Domain:</span>
+        <span style={{ fontSize:13, fontWeight:700, color:t.tx1, marginRight:2 }}>Domain:</span>
         {[["all","All"],["business","Business"],["technology","Technology"]].map(([v,l])=><button key={v} className={`tbtn${fDomain===v?" on":""}`} onClick={()=>setFD(v)}>{l}</button>)}
         <div style={{ width:1, height:20, background:t.bd, margin:"0 8px" }} />
-        <span style={{ fontSize:12, fontWeight:700, color:t.tx1, marginRight:2 }}>Pillar:</span>
+        <span style={{ fontSize:13, fontWeight:700, color:t.tx1, marginRight:2 }}>Pillar:</span>
         {[["all","All"],...PILLARS.map(p=>[p.id,p.label])].map(([v,l])=>{const isAll=v==="all";const active=isAll?fPillar.length===0||fPillar[0]==="all":Array.isArray(fPillar)&&fPillar.includes(v);const handlePillar=()=>{if(isAll){setFP(["all"]);return;}const cur=Array.isArray(fPillar)&&fPillar[0]!=="all"?fPillar:[];const next=cur.includes(v)?cur.filter(x=>x!==v):[...cur,v];setFP(next.length?next:["all"]);};return <button key={v} className={`tbtn${active?" on":""}`} onClick={handlePillar}>{l}</button>;})}
         <div style={{ width:1, height:20, background:t.bd, margin:"0 8px" }} />
-        <span style={{ fontSize:12, fontWeight:700, color:t.tx1, marginRight:2 }}>Status:</span>
+        <span style={{ fontSize:13, fontWeight:700, color:t.tx1, marginRight:2 }}>Status:</span>
         {["all","Live","In development","Roadmap"].map(s=><button key={s} className={`tbtn${fStatus===s?" on":""}`} onClick={()=>setFS(s)}>{s==="all"?"All":s}</button>)}
         <div style={{ flex:1 }} />
-        <button onClick={()=>setTableMode(m=>!m)} style={{ background:"transparent", border:`1px solid ${t.bd}`, borderRadius:8, padding:"5px 10px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name={tableMode?"grid":"table"} size={13} color={t.tx3} />{tableMode?"Cards":"Table"}</button>
+        <button onClick={()=>setTableMode(m=>!m)} style={{ background:"transparent", border:`1px solid ${t.bd}`, borderRadius:20, padding:"6px 12px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name={tableMode?"grid":"table"} size={14} color={t.tx3} />{tableMode?"Cards":"Table"}</button>
       </div>
-      <div style={{ fontSize:12, color:t.tx3, marginBottom:14 }}>{ucs.length} of {allUcs.length} use cases</div>
+      <div style={{ fontSize:13, color:t.tx3, marginBottom:14 }}>{ucs.length} of {allUcs.length} use cases</div>
       {ucs.length===0 ? (
-        <div className="card" style={{ padding:44, textAlign:"center" }}><Icon name="search" size={24} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:14, color:t.tx3 }}>No use cases match the current filters.</div></div>
+        <div className="card" style={{ padding:44, textAlign:"center" }}><Icon name="search" size={26} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:15, color:t.tx3 }}>No use cases match the current filters.</div></div>
       ) : tableMode ? (
         <div style={{ overflowX:"auto" }}>
-          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13 }}>
-            <thead><tr style={{ borderBottom:`1px solid ${t.bd}` }}>{[["title","Title"],["dept","Department"],["status","Status"],["pillar","Pillar"],["impact","Impact"]].map(([k,l])=><th key={k} onClick={()=>toggleSort(k)} style={{ padding:"10px 14px", textAlign:"left", fontWeight:600, color:t.tx2, cursor:"pointer", whiteSpace:"nowrap", userSelect:"none" }}>{l} <span style={{ color:sort.key===k?t.accent:t.tx4 }}>{sort.key===k?(sort.dir>0?"↑":"↓"):"↕"}</span></th>)}{isAdmin&&<th style={{ padding:"10px 14px" }}></th>}</tr></thead>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14 }}>
+            <thead><tr style={{ borderBottom:`1px solid ${t.bd}` }}>{[["title","Title"],["dept","Department"],["status","Status"],["pillar","Pillar"],["impact","Impact"]].map(([k,l])=><th key={k} onClick={()=>toggleSort(k)} style={{ padding:"11px 14px", textAlign:"left", fontWeight:600, color:t.tx2, cursor:"pointer", whiteSpace:"nowrap", userSelect:"none" }}>{l} <span style={{ color:sort.key===k?t.accent:t.tx4 }}>{sort.key===k?(sort.dir>0?"↑":"↓"):"↕"}</span></th>)}{isAdmin&&<th style={{ padding:"11px 14px" }}></th>}</tr></thead>
             <tbody>
               {sorted.map(uc=>{const sc=SC(t,uc.status);const pc=PC(t,uc.pillar);const pil=PILLARS.find(p=>p.id===uc.pillar);return(
                 <tr key={uc.id} onClick={()=>go("detail",uc.id)} style={{ borderBottom:`1px solid ${t.bd}`, cursor:"pointer", transition:"background 0.15s" }} onMouseEnter={e=>e.currentTarget.style.background=t.bgMuted} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                  <td style={{ padding:"10px 14px", fontWeight:500 }}>{uc.title}</td>
-                  <td style={{ padding:"10px 14px", color:t.tx2 }}>{uc.dept}</td>
-                  <td style={{ padding:"10px 14px" }}><span style={{ background:sc.bg, color:sc.tx, fontSize:10, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap" }}>{uc.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span></td>
-                  <td style={{ padding:"10px 14px" }}><span style={{ background:pc.bg, color:pc.tx, fontSize:10, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}><Icon name={pil?.iconName||"star"} size={10} color={pc.tx} />{pil?.label}</span></td>
-                  <td style={{ padding:"10px 14px", color:t.tx2, fontSize:12 }}>{uc.impact}</td>
-                  {isAdmin&&<td style={{ padding:"10px 14px" }}><button onClick={e=>{e.stopPropagation();onEdit(uc);}} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 10px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:4 }}><Icon name="edit" size={11} color={t.tx3} />Edit</button></td>}
+                  <td style={{ padding:"11px 14px", fontWeight:500 }}>{uc.title}</td>
+                  <td style={{ padding:"11px 14px", color:t.tx2 }}>{uc.dept}</td>
+                  <td style={{ padding:"11px 14px" }}><span style={{ background:sc.bg, color:sc.tx, fontSize:11, fontWeight:500, padding:"3px 11px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:5, whiteSpace:"nowrap" }}>{uc.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span></td>
+                  <td style={{ padding:"11px 14px" }}><span style={{ background:pc.bg, color:pc.tx, fontSize:11, fontWeight:500, padding:"3px 11px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4, whiteSpace:"nowrap" }}><Icon name={pil?.iconName||"star"} size={11} color={pc.tx} />{pil?.label}</span></td>
+                  <td style={{ padding:"11px 14px", color:t.tx2, fontSize:13 }}>{uc.impact}</td>
+                  {isAdmin&&<td style={{ padding:"11px 14px" }}><button onClick={e=>{e.stopPropagation();onEdit(uc);}} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", fontSize:11, color:t.tx3, display:"flex", alignItems:"center", gap:4 }}><Icon name="edit" size={12} color={t.tx3} />Edit</button></td>}
                 </tr>
               );})}
             </tbody>
@@ -785,25 +815,25 @@ function CatalogPage({ t, dk, ucs, allUcs, videos, archs, isAdmin, onUpload, onA
 function UCCard({ uc, t, dk, onClick, idx, onEdit, isAdmin, hasVideo, hasArch, onUpload, onArchUpload }) {
   const sc=SC(t,uc.status); const pc=PC(t,uc.pillar); const pil=PILLARS.find(p=>p.id===uc.pillar);
   return (
-    <div onClick={onClick} className="card card-hover" style={{ padding:20, display:"flex", flexDirection:"column", animation:`fadeIn 0.3s ease ${Math.min(idx*0.03,0.3)}s both` }}>
+    <div onClick={onClick} className="card card-hover" style={{ padding:22, display:"flex", flexDirection:"column", animation:`fadeIn 0.3s ease ${Math.min(idx*0.03,0.3)}s both` }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8, gap:6 }}>
-        <span style={{ fontSize:11, color:t.tx3, fontWeight:500 }}>{uc.dept}</span>
-        <span style={{ background:sc.bg, color:sc.tx, fontSize:10, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap" }}>{uc.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span>
+        <span style={{ fontSize:12, color:t.tx3, fontWeight:500 }}>{uc.dept}</span>
+        <span style={{ background:sc.bg, color:sc.tx, fontSize:11, fontWeight:500, padding:"3px 11px", borderRadius:20, display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap" }}>{uc.status==="Live"&&<span style={{ width:5, height:5, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span>
       </div>
-      <h3 style={{ fontSize:15, fontWeight:600, marginBottom:7, lineHeight:1.3 }}>{uc.title}</h3>
-      <div style={{ display:"flex", gap:5, marginBottom:8, flexWrap:"wrap" }}>
-        <span style={{ background:pc.bg, color:pc.tx, fontSize:10, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name={pil?.iconName||"star"} size={10} color={pc.tx} />{pil?.label}</span>
-        {uc.impact&&<span style={{ background:t.bgMuted, color:t.tx2, fontSize:10, padding:"3px 10px", borderRadius:20 }}>{uc.impact}</span>}
+      <h3 style={{ fontSize:16, fontWeight:600, marginBottom:7, lineHeight:1.3 }}>{uc.title}</h3>
+      <div style={{ display:"flex", gap:5, marginBottom:9, flexWrap:"wrap" }}>
+        <span style={{ background:pc.bg, color:pc.tx, fontSize:11, fontWeight:500, padding:"3px 11px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name={pil?.iconName||"star"} size={11} color={pc.tx} />{pil?.label}</span>
+        {uc.impact&&<span style={{ background:t.bgMuted, color:t.tx2, fontSize:11, padding:"3px 11px", borderRadius:20 }}>{uc.impact}</span>}
       </div>
-      <p style={{ fontSize:12.5, color:t.tx2, lineHeight:1.6, flex:1, marginBottom:14 }}>{uc.summary}</p>
+      <p style={{ fontSize:14, color:t.tx2, lineHeight:1.6, flex:1, marginBottom:14 }}>{uc.summary}</p>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-        <span style={{ fontSize:12, fontWeight:600, color:t.accent, display:"flex", alignItems:"center", gap:4 }}>View details <Icon name="roi" size={12} color={t.accent} /></span>
+        <span style={{ fontSize:13, fontWeight:600, color:t.accent, display:"flex", alignItems:"center", gap:4 }}>View details <Icon name="roi" size={13} color={t.accent} /></span>
         <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
           {hasVideo&&<span style={{ fontSize:10, background:t.accentBg, color:t.accent, borderRadius:4, padding:"2px 7px", display:"flex", alignItems:"center", gap:3 }}><Icon name="video" size={10} color={t.accent} />Video</span>}
           {hasArch&&<span style={{ fontSize:10, background:t.amberBg, color:t.amber, borderRadius:4, padding:"2px 7px", display:"flex", alignItems:"center", gap:3 }}><Icon name="image" size={10} color={t.amber} />Arch</span>}
-          {isAdmin&&onUpload&&<button onClick={e=>onUpload(e,uc.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="video" size={10} color={t.tx3} />{hasVideo?"Replace":"Video"}</button>}
-          {isAdmin&&onArchUpload&&<button onClick={e=>onArchUpload(e,uc.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="attach" size={10} color={t.tx3} />{hasArch?"Replace":"Arch"}</button>}
-          {isAdmin&&onEdit&&<button onClick={e=>{e.stopPropagation();onEdit();}} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="edit" size={10} color={t.tx3} />Edit</button>}
+          {isAdmin&&onUpload&&<button onClick={e=>onUpload(e,uc.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="video" size={10} color={t.tx3} />{hasVideo?"Replace":"Video"}</button>}
+          {isAdmin&&onArchUpload&&<button onClick={e=>onArchUpload(e,uc.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="attach" size={10} color={t.tx3} />{hasArch?"Replace":"Arch"}</button>}
+          {isAdmin&&onEdit&&<button onClick={e=>{e.stopPropagation();onEdit();}} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 8px", fontSize:10, color:t.tx3, display:"flex", alignItems:"center", gap:3 }}><Icon name="edit" size={10} color={t.tx3} />Edit</button>}
         </div>
       </div>
     </div>
@@ -816,31 +846,31 @@ function DetailPage({ t, dk, uc, videos={}, archs={}, isAdmin, onUpload, onArchU
   return (
     <div style={{ padding:"28px 0 60px", maxWidth:840 }} className="fade">
       <div style={{ display:"flex", gap:8, marginBottom:20 }}>
-        <button onClick={()=>go("catalog")} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:8, padding:"6px 12px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="back" size={13} color={t.tx2} />Back</button>
-        {isAdmin&&<button onClick={onEdit} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:8, padding:"6px 12px", fontSize:12, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="edit" size={13} color={t.tx2} />Edit</button>}
+        <button onClick={()=>go("catalog")} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:20, padding:"7px 16px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="back" size={14} color={t.tx2} />Back</button>
+        {isAdmin&&<button onClick={onEdit} style={{ background:t.bgCard, border:`1px solid ${t.bd}`, borderRadius:20, padding:"7px 16px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="edit" size={14} color={t.tx2} />Edit</button>}
       </div>
       <div style={{ display:"flex", gap:7, alignItems:"center", marginBottom:10, flexWrap:"wrap" }}>
-        <span style={{ background:sc.bg, color:sc.tx, fontSize:11, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"flex", alignItems:"center", gap:5 }}>{uc.status==="Live"&&<span style={{ width:6, height:6, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span>
-        <span style={{ background:pc.bg, color:pc.tx, fontSize:11, fontWeight:500, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name={pil?.iconName||"star"} size={11} color={pc.tx} />{pil?.label}</span>
-        <span style={{ fontSize:12, color:t.tx3 }}>{uc.dept}</span>
+        <span style={{ background:sc.bg, color:sc.tx, fontSize:12, fontWeight:500, padding:"4px 12px", borderRadius:20, display:"flex", alignItems:"center", gap:5 }}>{uc.status==="Live"&&<span style={{ width:6, height:6, borderRadius:"50%", background:sc.tx, animation:"pulse 2s infinite" }} />}{uc.status}</span>
+        <span style={{ background:pc.bg, color:pc.tx, fontSize:12, fontWeight:500, padding:"4px 12px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name={pil?.iconName||"star"} size={12} color={pc.tx} />{pil?.label}</span>
+        <span style={{ fontSize:13, color:t.tx3 }}>{uc.dept}</span>
       </div>
-      <h1 style={{ fontSize:"clamp(22px,3.5vw,36px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:8 }}>{uc.title}</h1>
-      {uc.impact&&<div style={{ display:"inline-block", background:pc.bg, color:pc.tx, fontSize:14, fontWeight:600, padding:"5px 16px", borderRadius:8, marginBottom:18 }}>{uc.impact}</div>}
-      <p style={{ fontSize:15, color:t.tx2, lineHeight:1.7, marginBottom:26 }}>{uc.summary}</p>
-      {uc.outcomes?.length>0&&<div style={{ marginBottom:24 }}><SLabel t={t}>Key outcomes</SLabel><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:10, marginTop:12 }}>{uc.outcomes.map((o,i)=><div key={i} className="card" style={{ padding:"12px 15px", borderLeft:`3px solid ${pc.tx}`, borderRadius:"0 12px 12px 0", display:"flex", alignItems:"flex-start", gap:8 }}><Icon name="check" size={14} color={pc.tx} style={{ marginTop:2, flexShrink:0 }} /><div style={{ fontSize:13, color:t.tx2, lineHeight:1.5 }}>{o}</div></div>)}</div></div>}
-      {hasPT&&<div className="card" style={{ padding:"20px 22px", marginBottom:20 }}><div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}><Icon name="journey" size={14} color={pc.tx} /><SLabel t={t} color={pc.tx}>Process transformation</SLabel></div>{[{label:"Before",time:uc.fromTime,steps:uc.fromSteps.map(s=>({l:s,a:false})),tc:t.tx3,bg:"transparent",bd:t.bd},{label:"After — agentic AI",time:uc.toTime,steps:uc.toSteps,tc:pc.tx,bg:pc.bg,bd:pc.bd}].map((row,ri)=><div key={ri} style={{ marginBottom:ri===0?16:0 }}><div style={{ display:"flex", justifyContent:"space-between", marginBottom:7, alignItems:"center" }}><span style={{ fontSize:10, fontWeight:600, color:row.tc, letterSpacing:"0.1em", textTransform:"uppercase" }}>{row.label}</span>{row.time&&<span style={{ fontSize:12, fontWeight:600, color:row.tc, background:row.bg||t.bgMuted, padding:"2px 10px", borderRadius:20, border:`1px solid ${row.bd}` }}>{row.time}</span>}</div><div style={{ display:"flex", gap:4, overflowX:"auto" }}>{row.steps.map((s,i)=><div key={i} style={{ flex:1, minWidth:90, background:s.a?pc.bg:"transparent", border:`1px solid ${s.a?pc.bd:t.bd}`, borderRadius:8, padding:"9px 10px", fontSize:11, color:s.a?pc.tx:t.tx2, lineHeight:1.45 }}>{s.a&&<div style={{ display:"flex", alignItems:"center", gap:3, marginBottom:3 }}><Icon name="agent" size={10} color={pc.tx} /><span style={{ fontSize:9, fontWeight:600, opacity:0.75 }}>AI agent</span></div>}{s.l}</div>)}</div></div>)}</div>}
-      {(uc.financial?.length>0||uc.impactBadges?.length>0)&&<div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>{(uc.financial?.length>0||uc.operational?.length>0||uc.governance?.length>0)&&<div className="card" style={{ padding:18 }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12 }}><Icon name="roi" size={14} color={t.accent} /><SLabel t={t}>Value outcomes</SLabel></div>{[["Financial",uc.financial],["Operational",uc.operational],["Governance",uc.governance]].map(([title,items])=>items?.length>0&&<div key={title} style={{ marginBottom:12 }}><div style={{ fontSize:12, fontWeight:600, marginBottom:5 }}>{title}</div>{items.map((f,i)=><div key={i} style={{ display:"flex", gap:7, marginBottom:5, fontSize:12, color:t.tx2, lineHeight:1.5 }}><span style={{ color:pc.tx, flexShrink:0 }}>›</span><span>{f}</span></div>)}</div>)}</div>}{uc.impactBadges?.length>0&&<div className="card" style={{ padding:18 }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12 }}><Icon name="chart" size={14} color={t.accent} /><SLabel t={t}>Impact indicators</SLabel></div>{uc.impactBadges.map((im,i)=><div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:8, padding:"9px 13px", marginBottom:7 }}><Icon name={im.d==="up"?"arrowUp":"arrowDn"} size={16} color={im.d==="up"?t.green:t.red} /><span style={{ fontSize:12.5, color:t.tx2 }}>{im.l}</span></div>)}</div>}</div>}
-      <div className="card" style={{ padding:20, marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}><Icon name="attach" size={14} color={t.amber} /><SLabel t={t}>Solution architecture</SLabel></div>
-        {archs[uc.id] ? <div>{archs[uc.id].mime?.startsWith("image")?<img src={archs[uc.id].url} alt="Architecture diagram" style={{ width:"100%", borderRadius:8, border:`1px solid ${t.bd}`, display:"block" }} />:<div style={{ display:"flex", alignItems:"center", gap:10, background:t.amberBg, border:`1px solid ${t.amberBd}`, borderRadius:8, padding:"12px 16px" }}><Icon name="attach" size={18} color={t.amber} /><span style={{ fontSize:13, color:t.tx1, fontWeight:500 }}>{archs[uc.id].name}</span></div>}<div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}><span style={{ fontSize:11, color:t.tx3 }}>{archs[uc.id].name}</span>{isAdmin&&<div style={{ display:"flex", gap:8 }}><button onClick={e=>onArchUpload(e,uc.id)} style={{ fontSize:11, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"4px 12px", display:"flex", alignItems:"center", gap:4 }}><Icon name="upload" size={11} color={t.tx2} />Replace</button><button onClick={e=>onRemoveArch(e,uc.id)} style={{ fontSize:11, color:t.red, background:"none", border:`1px solid ${t.red}55`, borderRadius:6, padding:"4px 12px", display:"flex", alignItems:"center", gap:4 }}><Icon name="trash" size={11} color={t.red} />Remove</button></div>}</div></div>
-        : isAdmin ? <div onClick={e=>onArchUpload(e,uc.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:10, padding:"28px 24px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.amber} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="image" size={26} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:13, color:t.tx3, marginBottom:4 }}>No architecture diagram uploaded yet</div><div style={{ fontSize:12, fontWeight:600, color:t.amber, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Icon name="attach" size={12} color={t.amber} />Upload image or PDF</div></div>
-        : <div style={{ padding:"28px 24px", textAlign:"center", color:t.tx3, fontSize:13 }}>No architecture diagram available.</div>}
+      <h1 style={{ fontSize:"clamp(24px,3.5vw,40px)", fontWeight:700, letterSpacing:"-0.02em", marginBottom:8 }}>{uc.title}</h1>
+      {uc.impact&&<div style={{ display:"inline-block", background:pc.bg, color:pc.tx, fontSize:15, fontWeight:600, padding:"6px 18px", borderRadius:20, marginBottom:18 }}>{uc.impact}</div>}
+      <p style={{ fontSize:16, color:t.tx2, lineHeight:1.7, marginBottom:26 }}>{uc.summary}</p>
+      {uc.outcomes?.length>0&&<div style={{ marginBottom:24 }}><SLabel t={t}>Key outcomes</SLabel><div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(210px,1fr))", gap:10, marginTop:12 }}>{uc.outcomes.map((o,i)=><div key={i} className="card" style={{ padding:"13px 16px", borderLeft:`3px solid ${pc.tx}`, borderRadius:0, display:"flex", alignItems:"flex-start", gap:8 }}><Icon name="check" size={15} color={pc.tx} style={{ marginTop:2, flexShrink:0 }} /><div style={{ fontSize:14, color:t.tx2, lineHeight:1.5 }}>{o}</div></div>)}</div></div>}
+      {hasPT&&<div className="card" style={{ padding:"22px 24px", marginBottom:20 }}><div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:14 }}><Icon name="journey" size={15} color={pc.tx} /><SLabel t={t} color={pc.tx}>Process transformation</SLabel></div>{[{label:"Before",time:uc.fromTime,steps:uc.fromSteps.map(s=>({l:s,a:false})),tc:t.tx3,bg:"transparent",bd:t.bd},{label:"After — agentic AI",time:uc.toTime,steps:uc.toSteps,tc:pc.tx,bg:pc.bg,bd:pc.bd}].map((row,ri)=><div key={ri} style={{ marginBottom:ri===0?16:0 }}><div style={{ display:"flex", justifyContent:"space-between", marginBottom:7, alignItems:"center" }}><span style={{ fontSize:11, fontWeight:600, color:row.tc, letterSpacing:"0.1em", textTransform:"uppercase" }}>{row.label}</span>{row.time&&<span style={{ fontSize:13, fontWeight:600, color:row.tc, background:row.bg||t.bgMuted, padding:"3px 12px", borderRadius:20, border:`1px solid ${row.bd}` }}>{row.time}</span>}</div><div style={{ display:"flex", gap:4, overflowX:"auto" }}>{row.steps.map((s,i)=><div key={i} style={{ flex:1, minWidth:95, background:s.a?pc.bg:"transparent", border:`1px solid ${s.a?pc.bd:t.bd}`, borderRadius:8, padding:"10px 11px", fontSize:12, color:s.a?pc.tx:t.tx2, lineHeight:1.45 }}>{s.a&&<div style={{ display:"flex", alignItems:"center", gap:3, marginBottom:3 }}><Icon name="agent" size={11} color={pc.tx} /><span style={{ fontSize:10, fontWeight:600, opacity:0.75 }}>AI agent</span></div>}{s.l}</div>)}</div></div>)}</div>}
+      {(uc.financial?.length>0||uc.impactBadges?.length>0)&&<div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20 }}>{(uc.financial?.length>0||uc.operational?.length>0||uc.governance?.length>0)&&<div className="card" style={{ padding:20 }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12 }}><Icon name="roi" size={15} color={t.accent} /><SLabel t={t}>Value outcomes</SLabel></div>{[["Financial",uc.financial],["Operational",uc.operational],["Governance",uc.governance]].map(([title,items])=>items?.length>0&&<div key={title} style={{ marginBottom:12 }}><div style={{ fontSize:13, fontWeight:600, marginBottom:5 }}>{title}</div>{items.map((f,i)=><div key={i} style={{ display:"flex", gap:7, marginBottom:5, fontSize:13, color:t.tx2, lineHeight:1.5 }}><span style={{ color:pc.tx, flexShrink:0 }}>›</span><span>{f}</span></div>)}</div>)}</div>}{uc.impactBadges?.length>0&&<div className="card" style={{ padding:20 }}><div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:12 }}><Icon name="chart" size={15} color={t.accent} /><SLabel t={t}>Impact indicators</SLabel></div>{uc.impactBadges.map((im,i)=><div key={i} style={{ display:"flex", alignItems:"center", gap:10, background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:8, padding:"10px 14px", marginBottom:7 }}><Icon name={im.d==="up"?"arrowUp":"arrowDn"} size={17} color={im.d==="up"?t.green:t.red} /><span style={{ fontSize:14, color:t.tx2 }}>{im.l}</span></div>)}</div>}</div>}
+      <div className="card" style={{ padding:22, marginBottom:16 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}><Icon name="attach" size={15} color={t.amber} /><SLabel t={t}>Solution architecture</SLabel></div>
+        {archs[uc.id] ? <div>{archs[uc.id].mime?.startsWith("image")?<img src={archs[uc.id].url} alt="Architecture diagram" style={{ width:"100%", borderRadius:8, border:`1px solid ${t.bd}`, display:"block" }} />:<div style={{ display:"flex", alignItems:"center", gap:10, background:t.amberBg, border:`1px solid ${t.amberBd}`, borderRadius:8, padding:"12px 16px" }}><Icon name="attach" size={18} color={t.amber} /><span style={{ fontSize:14, color:t.tx1, fontWeight:500 }}>{archs[uc.id].name}</span></div>}<div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}><span style={{ fontSize:12, color:t.tx3 }}>{archs[uc.id].name}</span>{isAdmin&&<div style={{ display:"flex", gap:8 }}><button onClick={e=>onArchUpload(e,uc.id)} style={{ fontSize:12, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"5px 14px", display:"flex", alignItems:"center", gap:4 }}><Icon name="upload" size={12} color={t.tx2} />Replace</button><button onClick={e=>onRemoveArch(e,uc.id)} style={{ fontSize:12, color:t.red, background:"none", border:`1px solid ${t.red}55`, borderRadius:20, padding:"5px 14px", display:"flex", alignItems:"center", gap:4 }}><Icon name="trash" size={12} color={t.red} />Remove</button></div>}</div></div>
+        : isAdmin ? <div onClick={e=>onArchUpload(e,uc.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:10, padding:"30px 24px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.amber} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="image" size={28} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:14, color:t.tx3, marginBottom:4 }}>No architecture diagram uploaded yet</div><div style={{ fontSize:13, fontWeight:600, color:t.amber, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Icon name="attach" size={13} color={t.amber} />Upload image or PDF</div></div>
+        : <div style={{ padding:"30px 24px", textAlign:"center", color:t.tx3, fontSize:14 }}>No architecture diagram available.</div>}
       </div>
-      <div className="card" style={{ padding:20 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}><Icon name="video" size={14} color={t.accent} /><SLabel t={t}>Demonstration video</SLabel></div>
-        {videos[uc.id] ? <div><video src={videos[uc.id].url} controls style={{ width:"100%", borderRadius:8, border:`1px solid ${t.bd}` }} /><div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}><span style={{ fontSize:11, color:t.tx3 }}>{videos[uc.id].name}</span>{isAdmin&&<div style={{ display:"flex", gap:8 }}><button onClick={e=>onUpload(e,uc.id)} style={{ fontSize:11, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"4px 12px", display:"flex", alignItems:"center", gap:4 }}><Icon name="upload" size={11} color={t.tx2} />Replace</button><button onClick={e=>onRemove(e,uc.id)} style={{ fontSize:11, color:t.red, background:"none", border:`1px solid ${t.red}55`, borderRadius:6, padding:"4px 12px", display:"flex", alignItems:"center", gap:4 }}><Icon name="trash" size={11} color={t.red} />Remove</button></div>}</div></div>
-        : isAdmin ? <div onClick={e=>onUpload(e,uc.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:10, padding:"30px 24px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="play" size={28} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:13, color:t.tx3, marginBottom:4 }}>No video uploaded yet</div><div style={{ fontSize:12, fontWeight:600, color:t.accent, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Icon name="upload" size={12} color={t.accent} />Click to upload</div></div>
-        : <div style={{ padding:"30px 24px", textAlign:"center", color:t.tx3, fontSize:13 }}>No demonstration video available.</div>}
+      <div className="card" style={{ padding:22 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:14 }}><Icon name="video" size={15} color={t.accent} /><SLabel t={t}>Demonstration video</SLabel></div>
+        {videos[uc.id] ? <div><video src={videos[uc.id].url} controls style={{ width:"100%", borderRadius:8, border:`1px solid ${t.bd}` }} /><div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}><span style={{ fontSize:12, color:t.tx3 }}>{videos[uc.id].name}</span>{isAdmin&&<div style={{ display:"flex", gap:8 }}><button onClick={e=>onUpload(e,uc.id)} style={{ fontSize:12, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"5px 14px", display:"flex", alignItems:"center", gap:4 }}><Icon name="upload" size={12} color={t.tx2} />Replace</button><button onClick={e=>onRemove(e,uc.id)} style={{ fontSize:12, color:t.red, background:"none", border:`1px solid ${t.red}55`, borderRadius:20, padding:"5px 14px", display:"flex", alignItems:"center", gap:4 }}><Icon name="trash" size={12} color={t.red} />Remove</button></div>}</div></div>
+        : isAdmin ? <div onClick={e=>onUpload(e,uc.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:10, padding:"32px 24px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s" }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="play" size={30} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:14, color:t.tx3, marginBottom:4 }}>No video uploaded yet</div><div style={{ fontSize:13, fontWeight:600, color:t.accent, display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><Icon name="upload" size={13} color={t.accent} />Click to upload</div></div>
+        : <div style={{ padding:"32px 24px", textAlign:"center", color:t.tx3, fontSize:14 }}>No demonstration video available.</div>}
       </div>
     </div>
   );
@@ -851,11 +881,11 @@ function ClientSpeaksPage({ t }) {
   const quotes=[{name:"Andrew Horton",title:"Group CEO, QBE",initials:"AH",context:"Mar 2024 — speaking about the Cyber GenAI Underwriting solution built by Accenture, after the FY23 earnings report in an interview with the Insurance Business publication.",highlight:"Cyber GenAI Underwriting solution",quote:"\u201C65% improvement speed-wise, with the process spanning from the initial submission to getting the quote out\u2026. It\u2019s a really good position to be in, and then it\u2019s scalable\u2026. We\u2019re really excited about it.\u201D",pillar:"speed",tag:"Cyber UW assistant"}];
   return (
     <div style={{ padding:"28px 0 60px" }} className="fade">
-      <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:6 }}><Icon name="chat" size={17} color={t.accent} /><span style={{ fontSize:11, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase" }}>Client speaks</span></div>
-      <h2 style={{ fontSize:"clamp(22px,4vw,36px)", fontWeight:800, letterSpacing:"-0.02em", marginBottom:6 }}>In their own words</h2>
-      <p style={{ fontSize:14, color:t.tx2, marginBottom:36, maxWidth:560, lineHeight:1.6 }}>QBE leadership on the real-world impact of AI — unscripted and on the record.</p>
-      {quotes.map((q,i)=>{const pc=PC(t,q.pillar);return<div key={i} style={{ marginBottom:28 }}><div className="card" style={{ padding:"clamp(24px,3vw,40px)", borderLeft:`4px solid ${pc.tx}`, overflow:"hidden", position:"relative" }}><div style={{ position:"absolute", top:-10, right:24, fontSize:160, color:pc.tx, opacity:0.04, fontFamily:"Georgia,serif", lineHeight:1, userSelect:"none", pointerEvents:"none" }}>"</div><div style={{ display:"flex", alignItems:"flex-start", gap:16, marginBottom:24 }}><div style={{ width:64, height:64, borderRadius:12, background:pc.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700, color:pc.tx, flexShrink:0, border:`1px solid ${pc.bd}` }}>{q.initials}</div><div style={{ flex:1 }}><div style={{ fontSize:15, fontWeight:700, marginBottom:2 }}>{q.name}</div><div style={{ fontSize:13, color:t.tx2, marginBottom:8 }}>{q.title}</div><span style={{ background:pc.bg, color:pc.tx, fontSize:10, fontWeight:600, padding:"3px 10px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="speed" size={10} color={pc.tx} />{q.tag}</span></div></div><div style={{ fontSize:13, color:t.tx3, fontStyle:"italic", lineHeight:1.65, marginBottom:24, paddingBottom:20, borderBottom:`1px solid ${t.bd}` }}>{q.context.split(q.highlight).map((part,pi,arr)=><span key={pi}>{part}{pi<arr.length-1&&<strong style={{ color:t.tx1, fontStyle:"normal", fontWeight:600 }}>{q.highlight}</strong>}</span>)}</div><blockquote style={{ margin:0, fontSize:"clamp(17px,2.2vw,24px)", fontWeight:700, lineHeight:1.5, color:t.tx1, fontStyle:"italic", letterSpacing:"-0.01em" }}>{q.quote}</blockquote></div></div>;})}
-      <div className="card" style={{ padding:"28px 24px", textAlign:"center", border:`1px dashed ${t.bd}` }}><Icon name="add" size={22} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:13, fontWeight:600, color:t.tx3, marginBottom:4 }}>More client testimonials coming soon</div><div style={{ fontSize:12, color:t.tx4 }}>Additional QBE leadership quotes will appear here as the programme scales.</div></div>
+      <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:6 }}><Icon name="chat" size={18} color={t.accent} /><span style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase" }}>Client speaks</span></div>
+      <h2 style={{ fontSize:"clamp(26px,4vw,42px)", fontWeight:800, letterSpacing:"-0.02em", marginBottom:8 }}>In their own words</h2>
+      <p style={{ fontSize:16, color:t.tx2, marginBottom:36, maxWidth:580, lineHeight:1.6 }}>QBE leadership on the real-world impact of AI — unscripted and on the record.</p>
+      {quotes.map((q,i)=>{const pc=PC(t,q.pillar);return<div key={i} style={{ marginBottom:28 }}><div className="card" style={{ padding:"clamp(26px,3vw,44px)", borderLeft:`4px solid ${pc.tx}`, borderRadius:0, overflow:"hidden", position:"relative" }}><div style={{ position:"absolute", top:-10, right:24, fontSize:180, color:pc.tx, opacity:0.04, fontFamily:"Georgia,serif", lineHeight:1, userSelect:"none", pointerEvents:"none" }}>"</div><div style={{ display:"flex", alignItems:"flex-start", gap:16, marginBottom:24 }}><div style={{ width:68, height:68, borderRadius:12, background:pc.bg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:20, fontWeight:700, color:pc.tx, flexShrink:0, border:`1px solid ${pc.bd}` }}>{q.initials}</div><div style={{ flex:1 }}><div style={{ fontSize:17, fontWeight:700, marginBottom:2 }}>{q.name}</div><div style={{ fontSize:14, color:t.tx2, marginBottom:8 }}>{q.title}</div><span style={{ background:pc.bg, color:pc.tx, fontSize:11, fontWeight:600, padding:"3px 11px", borderRadius:20, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="speed" size={11} color={pc.tx} />{q.tag}</span></div></div><div style={{ fontSize:14, color:t.tx3, fontStyle:"italic", lineHeight:1.65, marginBottom:24, paddingBottom:20, borderBottom:`1px solid ${t.bd}` }}>{q.context.split(q.highlight).map((part,pi,arr)=><span key={pi}>{part}{pi<arr.length-1&&<strong style={{ color:t.tx1, fontStyle:"normal", fontWeight:600 }}>{q.highlight}</strong>}</span>)}</div><blockquote style={{ margin:0, fontSize:"clamp(19px,2.2vw,26px)", fontWeight:700, lineHeight:1.5, color:t.tx1, fontStyle:"italic", letterSpacing:"-0.01em" }}>{q.quote}</blockquote></div></div>;})}
+      <div className="card" style={{ padding:"30px 26px", textAlign:"center", border:`1px dashed ${t.bd}` }}><Icon name="add" size={24} color={t.tx4} style={{ margin:"0 auto 10px" }} /><div style={{ fontSize:14, fontWeight:600, color:t.tx3, marginBottom:4 }}>More client testimonials coming soon</div><div style={{ fontSize:13, color:t.tx4 }}>Additional QBE leadership quotes will appear here as the programme scales.</div></div>
     </div>
   );
 }
@@ -871,7 +901,7 @@ function ChatPanel({ t, ucs, onClose }) {
     const next=[...msgs,{role:"user",text:txt}]; setMsgs(next);
     try {
       const ctx=ucs.map(u=>`**${u.title}** (${u.dept}, ${u.status}, ${u.pillar} pillar): ${u.summary} Impact: ${u.impact||"n/a"}. Outcomes: ${(u.outcomes||[]).join("; ")}.`).join("\n");
-      const sys=`You are an AI assistant embedded in QBE's AI Command Centre. Help stakeholders understand QBE's AI portfolio.\n\nUse cases:\n${ctx}\n\nBe concise and specific.`;
+      const sys=`You are an AI assistant embedded in QBE's AI Innovation Studio. Help stakeholders understand QBE's AI portfolio.\n\nUse cases:\n${ctx}\n\nBe concise and specific.`;
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:sys,messages:next.map(m=>({role:m.role==="assistant"?"assistant":"user",content:m.text}))})});
       const data=await res.json();
       setMsgs(p=>[...p,{role:"assistant",text:data.content?.map(b=>b.text||"").join("")||"Sorry, something went wrong."}]);
@@ -879,19 +909,19 @@ function ChatPanel({ t, ucs, onClose }) {
     finally { setLoading(false); }
   };
   return (
-    <div style={{ position:"fixed", right:24, bottom:24, width:356, height:480, background:t.bgCard, border:`1px solid ${t.bdStrong}`, borderRadius:16, boxShadow:t.shadow, display:"flex", flexDirection:"column", zIndex:50, overflow:"hidden" }}>
-      <div style={{ padding:"13px 15px", borderBottom:`1px solid ${t.bd}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:t.bgMuted }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8 }}><Icon name="chat" size={15} color={t.accent} /><div><div style={{ fontSize:13, fontWeight:600 }}>Ask AI</div><div style={{ fontSize:10, color:t.tx3 }}>Powered by Claude · full use case context</div></div></div>
-        <button onClick={onClose} style={{ background:"none", border:"none" }}><Icon name="close" size={14} color={t.tx3} /></button>
+    <div style={{ position:"fixed", right:24, bottom:24, width:370, height:500, background:t.bgCard, border:`1px solid ${t.bdStrong}`, borderRadius:16, boxShadow:t.shadow, display:"flex", flexDirection:"column", zIndex:50, overflow:"hidden" }}>
+      <div style={{ padding:"14px 16px", borderBottom:`1px solid ${t.bd}`, display:"flex", justifyContent:"space-between", alignItems:"center", background:t.bgMuted }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}><Icon name="chat" size={16} color={t.accent} /><div><div style={{ fontSize:14, fontWeight:600 }}>Ask AI</div><div style={{ fontSize:11, color:t.tx3 }}>Powered by Claude · full use case context</div></div></div>
+        <button onClick={onClose} style={{ background:"none", border:"none" }}><Icon name="close" size={15} color={t.tx3} /></button>
       </div>
       <div style={{ flex:1, overflowY:"auto", padding:"12px 12px 6px" }}>
-        {msgs.map((m,i)=><div key={i} style={{ marginBottom:10, display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}><div style={{ maxWidth:"85%", background:m.role==="user"?t.accent:t.bgMuted, color:m.role==="user"?"#fff":t.tx1, borderRadius:m.role==="user"?"12px 12px 3px 12px":"12px 12px 12px 3px", padding:"8px 12px", fontSize:12.5, lineHeight:1.6 }}>{m.text}</div></div>)}
-        {loading&&<div style={{ display:"flex", justifyContent:"flex-start", marginBottom:10 }}><div style={{ background:t.bgMuted, borderRadius:"12px 12px 12px 3px", padding:"8px 12px", fontSize:12.5, color:t.tx3 }}>Thinking…</div></div>}
+        {msgs.map((m,i)=><div key={i} style={{ marginBottom:10, display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}><div style={{ maxWidth:"85%", background:m.role==="user"?t.accent:t.bgMuted, color:m.role==="user"?"#fff":t.tx1, borderRadius:m.role==="user"?"12px 12px 3px 12px":"12px 12px 12px 3px", padding:"9px 13px", fontSize:13.5, lineHeight:1.6 }}>{m.text}</div></div>)}
+        {loading&&<div style={{ display:"flex", justifyContent:"flex-start", marginBottom:10 }}><div style={{ background:t.bgMuted, borderRadius:"12px 12px 12px 3px", padding:"9px 13px", fontSize:13.5, color:t.tx3 }}>Thinking…</div></div>}
         <div ref={endRef} />
       </div>
-      <div style={{ padding:"9px 11px", borderTop:`1px solid ${t.bd}`, display:"flex", gap:7 }}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ask about any use case…" style={{ flex:1, background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:8, padding:"7px 11px", fontSize:12, color:t.tx1, outline:"none" }} />
-        <button onClick={send} disabled={loading||!input.trim()} style={{ background:t.accent, color:"#fff", border:"none", borderRadius:8, padding:"7px 13px", opacity:loading||!input.trim()?0.5:1, display:"flex", alignItems:"center" }}><Icon name="send" size={13} color="#fff" /></button>
+      <div style={{ padding:"10px 12px", borderTop:`1px solid ${t.bd}`, display:"flex", gap:7 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Ask about any use case…" style={{ flex:1, background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:20, padding:"8px 14px", fontSize:13, color:t.tx1, outline:"none" }} />
+        <button onClick={send} disabled={loading||!input.trim()} style={{ background:t.accent, color:"#fff", border:"none", borderRadius:20, padding:"8px 14px", opacity:loading||!input.trim()?0.5:1, display:"flex", alignItems:"center" }}><Icon name="send" size={14} color="#fff" /></button>
       </div>
     </div>
   );
@@ -910,15 +940,15 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
   const togglePillar=pid=>setForm(p=>{const cur=p.pillars||[];const next=cur.includes(pid)?cur.filter(x=>x!==pid):[...cur,pid];return{...p,pillars:next.length?next:cur};});
   const load=id=>{const u=ucs.find(x=>x.id===id);if(!u)return;setForm({...u,pillars:u.pillars||(u.pillar?[u.pillar]:["speed"])});setOT((u.outcomes||[]).join("\n"));setFT((u.financial||[]).join("\n"));setOpT((u.operational||[]).join("\n"));setGT((u.governance||[]).join("\n"));setFsT((u.fromSteps||[]).join("\n"));setTsT((u.toSteps||[]).map(s=>(s.a?"AGENT: ":"")+s.l).join("\n"));};
   const save=()=>onSave({...form,pillar:form.pillars?.[0]||"speed",pillars:form.pillars||["speed"],outcomes:ln(oT),financial:ln(fT),operational:ln(opT),governance:ln(gT),fromSteps:ln(fsT),toSteps:parseToSteps(tsT)});
-  const inp={width:"100%",padding:"8px 11px",border:`1px solid ${t.bd}`,borderRadius:8,fontSize:13,background:t.bgMuted,color:t.tx1,outline:"none"};
-  const lbl={display:"block",fontSize:11,fontWeight:600,color:t.tx3,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"};
+  const inp={width:"100%",padding:"9px 12px",border:`1px solid ${t.bd}`,borderRadius:8,fontSize:14,background:t.bgMuted,color:t.tx1,outline:"none"};
+  const lbl={display:"block",fontSize:12,fontWeight:600,color:t.tx3,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"};
   const hasVideo=!!(videos&&videos[form.id]); const hasArch=!!(archs&&archs[form.id]);
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.45)", zIndex:100, display:"flex", alignItems:"flex-start", justifyContent:"center", paddingTop:32, overflowY:"auto" }} onClick={onClose}>
-      <div onClick={e=>e.stopPropagation()} className="card fade" style={{ width:"100%", maxWidth:560, margin:"0 16px 40px", padding:26 }}>
+      <div onClick={e=>e.stopPropagation()} className="card fade" style={{ width:"100%", maxWidth:580, margin:"0 16px 40px", padding:28 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:7 }}><Icon name="edit" size={16} color={t.accent} /><h3 style={{ fontSize:16, fontWeight:700 }}>{uc?"Edit use case":"Add / edit use case"}</h3></div>
-          <button onClick={onClose} style={{ background:"none", border:"none" }}><Icon name="close" size={16} color={t.tx3} /></button>
+          <div style={{ display:"flex", alignItems:"center", gap:7 }}><Icon name="edit" size={17} color={t.accent} /><h3 style={{ fontSize:18, fontWeight:700 }}>{uc?"Edit use case":"Add / edit use case"}</h3></div>
+          <button onClick={onClose} style={{ background:"none", border:"none" }}><Icon name="close" size={17} color={t.tx3} /></button>
         </div>
         {!uc&&<div style={{ marginBottom:14 }}><label style={lbl}>Select existing to edit</label><select onChange={e=>{if(e.target.value){load(e.target.value);}else{setForm({...blank,id:"uc_"+Date.now()});setOT("");setFT("");setOpT("");setGT("");setFsT("");setTsT("");}}} style={inp}><option value="">— New use case —</option>{ucs.map(u=><option key={u.id} value={u.id}>{u.title}</option>)}</select></div>}
         <div style={{ marginBottom:11 }}><label style={lbl}>Title</label><input value={form.title||""} onChange={e=>s("title",e.target.value)} style={inp} /></div>
@@ -927,7 +957,7 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
           <div><label style={lbl}>Domain</label><select value={form.domain} onChange={e=>s("domain",e.target.value)} style={inp}><option value="business">Business</option><option value="technology">Technology</option></select></div>
           <div><label style={lbl}>Status</label><select value={form.status} onChange={e=>s("status",e.target.value)} style={inp}><option value="Live">Live</option><option value="In development">In development</option><option value="Roadmap">Roadmap</option></select></div>
         </div>
-        <div style={{ marginBottom:11 }}><label style={lbl}>Value pillars (select all that apply)</label><div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:2 }}>{PILLARS.map(p=>{const c=PC(t,p.id);const on=(form.pillars||[]).includes(p.id);return<button key={p.id} onClick={()=>togglePillar(p.id)} style={{ background:on?c.bg:"transparent", border:`1px solid ${on?c.tx:t.bd}`, borderRadius:20, padding:"5px 14px", fontSize:12, color:on?c.tx:t.tx2, fontWeight:on?600:400, display:"flex", alignItems:"center", gap:5, transition:"all 0.15s" }}><Icon name={p.iconName} size={11} color={on?c.tx:t.tx3} />{p.label}</button>;})}</div></div>
+        <div style={{ marginBottom:11 }}><label style={lbl}>Value pillars (select all that apply)</label><div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:2 }}>{PILLARS.map(p=>{const c=PC(t,p.id);const on=(form.pillars||[]).includes(p.id);return<button key={p.id} onClick={()=>togglePillar(p.id)} style={{ background:on?c.bg:"transparent", border:`1px solid ${on?c.tx:t.bd}`, borderRadius:20, padding:"6px 15px", fontSize:13, color:on?c.tx:t.tx2, fontWeight:on?600:400, display:"flex", alignItems:"center", gap:5, transition:"all 0.15s" }}><Icon name={p.iconName} size={12} color={on?c.tx:t.tx3} />{p.label}</button>;})}</div></div>
         <div style={{ marginBottom:11 }}><label style={lbl}>Impact label</label><input value={form.impact||""} onChange={e=>s("impact",e.target.value)} style={inp} placeholder="e.g. 65% faster · 55% more bound" /></div>
         <div style={{ marginBottom:11 }}><label style={lbl}>Summary</label><textarea value={form.summary||""} onChange={e=>s("summary",e.target.value)} rows={3} style={{ ...inp, resize:"vertical", lineHeight:1.5 }} /></div>
         <div style={{ marginBottom:11 }}><label style={lbl}>Outcomes (one per line)</label><textarea value={oT} onChange={e=>setOT(e.target.value)} rows={3} style={{ ...inp, resize:"vertical", lineHeight:1.5 }} /></div>
@@ -942,18 +972,18 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
         <div style={{ marginBottom:14 }}><label style={lbl}>Governance outcomes</label><textarea value={gT} onChange={e=>setGT(e.target.value)} rows={2} style={{ ...inp, resize:"vertical" }} /></div>
         <div style={{ marginBottom:12 }}>
           <label style={lbl}>Solution architecture</label>
-          {hasArch?<div style={{ display:"flex", alignItems:"center", gap:8, background:t.amberBg, border:`1px solid ${t.amberBd}`, borderRadius:8, padding:"9px 12px" }}><Icon name="image" size={14} color={t.amber} /><span style={{ fontSize:12, color:t.tx1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{archs[form.id]?.name}</span><button onClick={e=>onArchUpload(e,form.id)} style={{ fontSize:11, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>Replace</button><button onClick={e=>onRemoveArch(e,form.id)} style={{ fontSize:11, color:t.red, background:"none", border:`1px solid ${t.red}44`, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>Remove</button></div>
-          :<div onClick={e=>onArchUpload(e,form.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:8, padding:"14px 16px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.amber} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="attach" size={14} color={t.amber} /><span style={{ fontSize:12, color:t.amber, fontWeight:600 }}>Upload image or PDF</span></div>}
+          {hasArch?<div style={{ display:"flex", alignItems:"center", gap:8, background:t.amberBg, border:`1px solid ${t.amberBd}`, borderRadius:8, padding:"10px 13px" }}><Icon name="image" size={15} color={t.amber} /><span style={{ fontSize:13, color:t.tx1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{archs[form.id]?.name}</span><button onClick={e=>onArchUpload(e,form.id)} style={{ fontSize:12, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Replace</button><button onClick={e=>onRemoveArch(e,form.id)} style={{ fontSize:12, color:t.red, background:"none", border:`1px solid ${t.red}44`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Remove</button></div>
+          :<div onClick={e=>onArchUpload(e,form.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:8, padding:"16px 18px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.amber} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="attach" size={15} color={t.amber} /><span style={{ fontSize:13, color:t.amber, fontWeight:600 }}>Upload image or PDF</span></div>}
         </div>
         <div style={{ marginBottom:18 }}>
           <label style={lbl}>Demonstration video</label>
-          {hasVideo?<div style={{ display:"flex", alignItems:"center", gap:8, background:t.accentBg, border:`1px solid ${t.accentBd}`, borderRadius:8, padding:"9px 12px" }}><Icon name="video" size={14} color={t.accent} /><span style={{ fontSize:12, color:t.tx1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{videos[form.id]?.name}</span><button onClick={e=>onUpload(e,form.id)} style={{ fontSize:11, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>Replace</button><button onClick={e=>onRemoveVideo(e,form.id)} style={{ fontSize:11, color:t.red, background:"none", border:`1px solid ${t.red}44`, borderRadius:6, padding:"3px 10px", flexShrink:0 }}>Remove</button></div>
-          :<div onClick={e=>onUpload(e,form.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:8, padding:"14px 16px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="video" size={14} color={t.accent} /><span style={{ fontSize:12, color:t.accent, fontWeight:600 }}>Upload video</span></div>}
+          {hasVideo?<div style={{ display:"flex", alignItems:"center", gap:8, background:t.accentBg, border:`1px solid ${t.accentBd}`, borderRadius:8, padding:"10px 13px" }}><Icon name="video" size={15} color={t.accent} /><span style={{ fontSize:13, color:t.tx1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{videos[form.id]?.name}</span><button onClick={e=>onUpload(e,form.id)} style={{ fontSize:12, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Replace</button><button onClick={e=>onRemoveVideo(e,form.id)} style={{ fontSize:12, color:t.red, background:"none", border:`1px solid ${t.red}44`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Remove</button></div>
+          :<div onClick={e=>onUpload(e,form.id)} style={{ border:`2px dashed ${t.bd}`, borderRadius:8, padding:"16px 18px", textAlign:"center", cursor:"pointer", transition:"border-color 0.2s", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }} onMouseEnter={e=>e.currentTarget.style.borderColor=t.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=t.bd}><Icon name="video" size={15} color={t.accent} /><span style={{ fontSize:13, color:t.accent, fontWeight:600 }}>Upload video</span></div>}
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <button onClick={save} style={{ flex:1, background:t.accent, color:"#fff", border:"none", borderRadius:10, padding:"10px 0", fontSize:14, fontWeight:600 }}>Save</button>
-          {uc&&<button onClick={()=>onDelete(form.id)} style={{ background:"none", border:`1px solid ${t.red}`, borderRadius:10, padding:"10px 14px", fontSize:13, color:t.red, display:"flex", alignItems:"center", gap:5 }}><Icon name="trash" size={13} color={t.red} />Delete</button>}
-          <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:10, padding:"10px 14px", fontSize:13, color:t.tx2 }}>Cancel</button>
+          <button onClick={save} style={{ flex:1, background:t.accent, color:"#fff", border:"none", borderRadius:24, padding:"11px 0", fontSize:15, fontWeight:600 }}>Save</button>
+          {uc&&<button onClick={()=>onDelete(form.id)} style={{ background:"none", border:`1px solid ${t.red}`, borderRadius:24, padding:"11px 16px", fontSize:14, color:t.red, display:"flex", alignItems:"center", gap:5 }}><Icon name="trash" size={14} color={t.red} />Delete</button>}
+          <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:24, padding:"11px 16px", fontSize:14, color:t.tx2 }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -963,11 +993,10 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
 // ── FOOTER ────────────────────────────────────────────────────────────────
 function Footer({ t, isAdmin }) {
   return (
-    <div style={{ borderTop:`1px solid ${t.bd}`, padding:"13px clamp(16px,3vw,40px)", display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:20 }}>
-      <span style={{ fontSize:11, color:t.tx3 }}>QBE AI Command Centre V3.1</span>
+    <div style={{ borderTop:`1px solid ${t.bd}`, padding:"14px clamp(16px,3vw,40px)", display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:20 }}>
+      <span style={{ fontSize:12, color:t.tx3 }}>QBE AI Innovation Studio V4.0</span>
       <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-        {isAdmin&&<span style={{ fontSize:10, color:t.accent, fontWeight:600, letterSpacing:"0.08em" }}>ADMIN SESSION</span>}
-        <span style={{ fontSize:11, color:t.tx3 }}>Built by Accenture</span>
+        {isAdmin&&<span style={{ fontSize:11, color:t.accent, fontWeight:600, letterSpacing:"0.08em" }}>ADMIN SESSION</span>}
       </div>
     </div>
   );
