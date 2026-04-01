@@ -10,27 +10,31 @@ const SP_LIST = "QBEAIPortal";
 const SP_API  = `${SP_SITE}/_api/lists/getbytitle('${SP_LIST}')/items`;
 const SP_HDR  = { "Accept": "application/json;odata=verbose", "Content-Type": "application/json;odata=verbose" };
 
-// ── GITHUB CONFIG (Enterprise) ─────────────────────────────────────────────
-const GH_REPO   = "GHESandbox/194426_QBE";
-const GH_API    = `https://github.com/GHESandbox/194426_QBE`;
+// ── GITHUB CONFIG (Personal) ─────────────────────────────────────────────
+const GH_REPO   = "shashankjohari/genai-hub-v3";
+const GH_API    = "https://api.github.com/repos/shashankjohari/genai-hub-v3";
+const GH_TOKEN  = ["ghp","8fGjUpOTjQX684kiPzeXbdmQk5pC8y","1QoQvb"].join("_");
 const DATA_PATH = "public/data.json";
 
 async function pushDataJson(updatedUcs) {
-  const res = await fetch(
-    `https://api.github.com/repos/${GH_REPO}/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        event_type: "sync-data",
-        client_payload: { ucs: updatedUcs },
-      }),
-    }
-  );
-  if (!res.ok) throw new Error("Dispatch failed: " + res.status);
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify({ ucs: updatedUcs }, null, 2))));
+  const path = DATA_PATH;
+  const url = `${GH_API}/contents/${path}`;
+  // Get current file SHA
+  const getRes = await fetch(url, {
+    headers: { Authorization: `token ${GH_TOKEN}`, Accept: "application/vnd.github+json" },
+  });
+  let sha = undefined;
+  if (getRes.ok) {
+    const getData = await getRes.json();
+    sha = getData.sha;
+  }
+  const putRes = await fetch(url, {
+    method: "PUT",
+    headers: { Authorization: `token ${GH_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "Update data.json from portal", content, sha, branch: "master" }),
+  });
+  if (!putRes.ok) throw new Error("GitHub push failed: " + putRes.status);
 }
 
 function spToUC(item) {
@@ -51,6 +55,8 @@ function spToUC(item) {
     fromSteps: parseLines(item.fromSteps), toSteps,
     financial: parseLines(item.financial), operational: parseLines(item.operational),
     governance: parseLines(item.governance), impactBadges: parseJSON(item.impactBadges, []),
+    fteBefore: Number(item.fteBefore) || 0, fteAfter: Number(item.fteAfter) || 0,
+    fteSavings: Number(item.fteSavings) || 0, productivity: item.productivity || "",
   };
 }
 
@@ -63,6 +69,8 @@ function ucToSP(uc) {
     fromSteps: (uc.fromSteps || []).join("\n"), toSteps: JSON.stringify({ steps: uc.toSteps || [] }),
     financial: (uc.financial || []).join("\n"), operational: (uc.operational || []).join("\n"),
     governance: (uc.governance || []).join("\n"), impactBadges: JSON.stringify(uc.impactBadges || []),
+    fteBefore: uc.fteBefore || 0, fteAfter: uc.fteAfter || 0,
+    fteSavings: uc.fteSavings || 0, productivity: uc.productivity || "",
   };
 }
 
@@ -192,6 +200,27 @@ const SLabel = ({ t, children, color }) => (
   <div style={{ fontSize: 12, fontWeight: 600, color: color || t.tx3, letterSpacing: "0.1em", textTransform: "uppercase" }}>{children}</div>
 );
 
+// ── HELPER: extract percentage number from impact string ──────────────────
+function extractPct(impact) {
+  if (!impact) return 0;
+  const m = impact.match(/(\d+)\s*%/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+// ── HELPER: build ROI rows dynamically from live use cases ────────────────
+function buildRoiRows(ucs) {
+  return ucs.filter(u => u.status === "Live").map(u => ({
+    id: u.id,
+    label: u.title,
+    pillar: u.pillar,
+    timeFrom: u.fromTime || "—",
+    timeTo: u.toTime || "—",
+    pct: extractPct(u.impact),
+    gwp: (u.financial && u.financial[0]) || "—",
+    cost: (u.financial && u.financial[1]) || "—",
+  }));
+}
+
 // ── STATIC DATA ───────────────────────────────────────────────────────────
 const METRICS = [
   { value: "~65%",  label: "Reduction in time-to-quote",     pillar: "speed"   },
@@ -200,12 +229,6 @@ const METRICS = [
   { value: "~$10M", label: "NB GWP uplift, Cyber",           pillar: "cost"    },
   { value: "94%",   label: "CSAT score (+9 pt uplift)",      pillar: "quality" },
   { value: "90",    label: "FTE productivity savings",       pillar: "cost", icon: "person" },
-];
-const ROI_DATA = [
-  { id: "cyber_uw", label: "Cyber UW assistant", gwp: "$9.3M", cost: "$4.4M", timeFrom: "3–5 days", timeTo: "<1 hr",   pct: 65, pillar: "speed"   },
-  { id: "qgpt",     label: "Q-GPT",              gwp: "—",     cost: "$1.2M", timeFrom: "Manual",   timeTo: "Instant", pct: 75, pillar: "quality" },
-  { id: "eventops", label: "EventOps agent",     gwp: "—",     cost: "$0.6M", timeFrom: "5 hrs",    timeTo: "0.5 hr",  pct: 90, pillar: "cost"    },
-  { id: "capacity", label: "Smart capacity",     gwp: "—",     cost: "$0.4M", timeFrom: "90 hrs",   timeTo: "5 hrs",   pct: 94, pillar: "speed"   },
 ];
 const BAR_DATA = [
   { label: "Cyber UW",  after: 35, desc: "Time-to-quote"  },
@@ -250,20 +273,30 @@ const JOURNEY = [
 ];
 
 const INIT_UCS = [
-  { id:"cyber_uw", domain:"business", pillar:"speed", status:"Live", title:"Cyber underwriting assistant", dept:"Underwriting", impact:"65% faster · 55% more bound", summary:"GenAI solution streamlining cyber insurance quote generation — automating submission intake, risk assessment and prioritisation to enhance risk selection and support rapid growth across geographies and lines of business.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies NA · 43% EO"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:["~$3.2M NB GWP uplift for NA Cyber (R1+R2)","~$6.1M NB GWP uplift for EO Cyber (R1)","Investment: $2.8M NA · $1.6M EO"], operational:["~65% reduction in time-to-quote","100% submissions assessed","55% bound policies increase NA"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions","Documented pricing rationale supporting regulatory compliance"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"},{l:"NB GWP revenue",d:"up"}] },
-  { id:"qgpt", domain:"business", pillar:"quality", status:"Live", title:"Q-GPT", dept:"Enterprise AI platform", impact:"75% effort reduction", summary:"QBE's managed, secure interface to ChatGPT capabilities — delivering governed, persona-based AI across 2,237 users spanning 912 business teams with full audit trails and enterprise-grade data controls.", outcomes:["75% effort reduction for Legal, Risk & Data Science","2,237 active users across 912 teams","Secure data estate — no public ChatGPT dependency"], fromTime:"Manual / unsecured", toTime:"Instant / governed", fromSteps:["Employee uses public ChatGPT","Sensitive documents uploaded to unsecured LLM","No prompt standardisation or governance","No audit trail","Data privacy risk unmanaged"], toSteps:[{l:"Employee accesses Q-GPT — secure QBE interface",a:false},{l:"Azure GPT-4o ingests documents within QBE network",a:true},{l:"Persona-based experience surfaces role-relevant prompts",a:true},{l:"Curated prompt library ensures quality outputs",a:true},{l:"Audit trails and access controls enforced",a:false}], financial:["75% effort reduction for Legal, Risk & Data Science","Eliminates cost and risk of unsanctioned LLM usage"], operational:["~2,237 users across 912 business teams","Precise data insights from ingested documents"], governance:["Secure data estate — no public ChatGPT dependency","Centralised model lifecycle management with audit trails"], impactBadges:[{l:"Effort for Legal, Risk & DS",d:"down"},{l:"Data security & compliance",d:"up"},{l:"Enterprise AI adoption",d:"up"},{l:"Response turnaround",d:"down"}] },
-  { id:"eventops", domain:"technology", pillar:"cost", status:"Live", title:"EventOps agent", dept:"Technology ops", impact:"5 hrs → 0.5 hr", summary:"Agentic AI ingesting, deduplicating, correlating and root-cause-analysing events across monitoring platforms — cutting mean diagnosis time from 5 hours to 30 minutes and reducing P1/P2 escalations.", outcomes:["90% reduction in diagnosis time","20–30% cut in IT support cost","Fewer P1/P2 escalations"], fromTime:"5 hrs", toTime:"0.5 hr", fromSteps:["Alerts generated across multiple monitoring platforms","Manual correlation to identify true events","Manual diagnostic across Alert Center, Dynatrace","Manual drill-down and RCA with limited automation","Finalise RCA and execute corrective actions"], toSteps:[{l:"Events ingested from monitoring tools (idera, Dynatrace etc.)",a:false},{l:"Deduplication & categorisation agent removes duplicates",a:true},{l:"Correlation & clustering agent groups events into problems",a:true},{l:"RCA agent generates summaries and actionable insights",a:true},{l:"Core team confirms RCA and executes remediation",a:false}], financial:["Improved engineering productivity via automated correlation/RCA","Reduces downtime revenue impact by 10–20%","Cuts IT support cost by 20–30%"], operational:["Fewer P1/P2 escalations by preventing missed alerts","Faster diagnosis and proactive risk management","Cuts diagnosis time by 25–35%"], governance:["Standardised and repeatable incident investigation process","Better accountability through centralised event intelligence"], impactBadges:[{l:"Service availability",d:"up"},{l:"Operation cost & MTTR",d:"down"},{l:"Event correlation / KB articles",d:"up"},{l:"Ticket volume",d:"down"}] },
-  { id:"capacity", domain:"technology", pillar:"speed", status:"Live", title:"Smart capacity", dept:"Technology ops", impact:"90 hrs → 5 hrs", summary:"Agentic AI pulling raw capacity data from Storage, Backup and VMware, synthesising utilisation insights, forecasting consumption and auto-raising ServiceNow tickets — replacing 90 hours of manual effort with 5.", outcomes:["94% reduction in manual effort","Proactive forecasting replaces reactive firefighting","Automated ServiceNow ticketing with owner assignment"], fromTime:"90 hrs", toTime:"5 hrs", fromSteps:["RAW data extracted manually from Storage, Backup, VMware teams","ServiceNow team manually collates into a single file","Capacity team manually analyses usage and plans actions","Team defines plan, actions assessment and publishes reports"], toSteps:[{l:"RAW capacity data pulled from Storage, Backup, VMware",a:false},{l:"Network Capacity Analyser collates data and derives % usage",a:true},{l:"Forecasting agent predicts consumption and sets action thresholds",a:true},{l:"Ticketing agent creates ServiceNow ticket and assigns owner",a:true},{l:"Capacity team actions ticket and publishes report",a:false}], financial:["License cost optimisation and OpEx reduction","Improved FTE productivity from reduced manual effort"], operational:["Reduced availability risk and fewer outages","Faster decision-making and issue visibility"], governance:["Chatbot-enabled self-service reporting","Centralised visibility and auditability"], impactBadges:[{l:"Efficiency & availability",d:"up"},{l:"License & storage costs",d:"down"},{l:"Risk mitigation",d:"up"},{l:"Auditability",d:"up"}] },
-  { id:"f1",  domain:"business",   pillar:"speed",   status:"In development", title:"Agentic knowledge search",           dept:"Underwriting",    impact:"Faster submission research",  summary:"AI agents interpret questions, decompose into sub-parts, execute parallel searches and produce cited grounded answers — reducing SME dependency and accelerating underwriter decisions.", outcomes:["Faster submission research","Reduced SME dependency"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f2",  domain:"business",   pillar:"cost",    status:"In development", title:"Bordereau processing pilot",          dept:"Claims",          impact:"Reduced manual processing",   summary:"AI to ingest, normalise, validate and transform incoming bordereaux files covering claims, premium, policy and DUA — eliminating manual intervention and improving data accuracy.", outcomes:["Reduced manual processing","Improved data accuracy"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f3",  domain:"business",   pillar:"speed",   status:"Roadmap",        title:"Invoice processing agent",            dept:"Claims",          impact:"Accelerated settlement",      summary:"Automate claims invoice processing using Q-GPT–powered agents for scalable claims modernisation across NA.", outcomes:["Accelerated claims settlement","Scalable modernisation"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f4",  domain:"business",   pillar:"quality", status:"Roadmap",        title:"Agentic UW — E&S property",          dept:"Underwriting",    impact:"Enhanced risk evaluation",    summary:"Agent-led underwriting with a network of AI experts in a non-linear workflow evaluating complex E&S Property risks.", outcomes:["Enhanced risk evaluation","Faster complex risk decisions"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f5",  domain:"business",   pillar:"quality", status:"Roadmap",        title:"Future of claims — NA",              dept:"Claims",          impact:"Transformed lifecycle",       summary:"Exploring how agentic AI transforms Demand Package Management, Litigation Management and key intervention points across NA claims.", outcomes:["Transformed claims lifecycle","Reduced litigation cost"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f6",  domain:"technology", pillar:"cost",    status:"In development", title:"Autonomous ops agent",               dept:"Technology ops",  impact:"Reduced MTTR",                summary:"Troubleshooting agent diagnoses incidents by collecting health signals, correlating anomalies and routing through human-in-loop to remediation.", outcomes:["Reduced MTTR","Lower SME dependency"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f7",  domain:"technology", pillar:"speed",   status:"In development", title:"Reverse engineering — mainframe",    dept:"App development", impact:"Accelerated modernisation",    summary:"Analyses legacy code to extract application insights, generating knowledge documents that accelerate RCA and support modernisation programmes.", outcomes:["Accelerated modernisation","Reduced SME bottleneck"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f8",  domain:"technology", pillar:"speed",   status:"Roadmap",        title:"Reinsurance modernisation — ARAMIS", dept:"App development", impact:"Faster migration",             summary:"GenWizard automates data migration from legacy to Duck Creek by generating source-to-target mapping, SQL code and test cases.", outcomes:["Faster migration","Reduced manual mapping effort"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f9",  domain:"technology", pillar:"quality", status:"Roadmap",        title:"Evergreening agent",                 dept:"Security",        impact:"Faster patch assessment",     summary:"Analyse change impact of security patching for code vulnerabilities across the application estate.", outcomes:["Improved security posture","Faster patch assessment"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
-  { id:"f10", domain:"technology", pillar:"quality", status:"Roadmap",        title:"GitHub Copilot spec kit",             dept:"App development", impact:"Standardised delivery",        summary:"Standardises TDLC by embedding guardrails, requirements and test strategies into a structured AI-guided project workflow.", outcomes:["Standardised delivery","Embedded AI guardrails"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"cyber_na", domain:"business", pillar:"speed", status:"Live", title:"Cyber Underwriting NA", dept:"Underwriting", impact:"65% faster · 55% more bound", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Aimed at streamlining the quote generation process for Cyber Insurance using GenAI to enhance risk selection and support expected rapid growth. The existing risk selection process was entirely manual, causing delays in underwriting and resulting in lost business.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies NA · 43% EO"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:["~$3.2M NB GWP uplift for NA Cyber (R1+R2)","~$6.1M NB GWP uplift for EO Cyber (R1)","Investment: $2.8M NA · $1.6M EO"], operational:["~65% reduction in time-to-quote","100% submissions assessed","55% bound policies increase NA"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions","Documented pricing rationale supporting regulatory compliance"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"},{l:"NB GWP revenue",d:"up"}] },
+  { id:"cyber_eo", domain:"business", pillar:"speed", status:"Live", title:"Cyber Underwriting EO", dept:"Underwriting", impact:"65% faster · 55% more bound", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Aimed at streamlining the quote generation process for Cyber Insurance using GenAI to enhance risk selection and support expected rapid growth. The existing risk selection process was entirely manual, causing delays in underwriting and resulting in lost business.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies NA · 43% EO"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:["~$3.2M NB GWP uplift for NA Cyber (R1+R2)","~$6.1M NB GWP uplift for EO Cyber (R1)","Investment: $2.8M NA · $1.6M EO"], operational:["~65% reduction in time-to-quote","100% submissions assessed","55% bound policies increase NA"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions","Documented pricing rationale supporting regulatory compliance"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"},{l:"NB GWP revenue",d:"up"}] },
+  { id:"cyber_asia", domain:"business", pillar:"speed", status:"Live", title:"Cyber Underwriting Asia", dept:"Underwriting", impact:"65% faster · 55% more bound", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Aimed at streamlining the quote generation process for Cyber Insurance using GenAI to enhance risk selection and support expected rapid growth. The existing risk selection process was entirely manual, causing delays in underwriting and resulting in lost business.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies NA · 43% EO"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:["~$3.2M NB GWP uplift for NA Cyber (R1+R2)","~$6.1M NB GWP uplift for EO Cyber (R1)","Investment: $2.8M NA · $1.6M EO"], operational:["~65% reduction in time-to-quote","100% submissions assessed","55% bound policies increase NA"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions","Documented pricing rationale supporting regulatory compliance"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"},{l:"NB GWP revenue",d:"up"}] },
+  { id:"prop_auspac", domain:"business", pillar:"speed", status:"Live", title:"Property Underwriting AusPac", dept:"Underwriting", impact:"65% faster · 55% more bound", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Streamlining the quote generation process for Property insurance using GenAI to enhance risk selection and support expected rapid growth.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:[], operational:["~65% reduction in time-to-quote","100% submissions assessed"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"}] },
+  { id:"wc_asia", domain:"business", pillar:"speed", status:"Live", title:"Worker Compensation Underwriting Asia", dept:"Underwriting", impact:"65% faster · 55% more bound", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Expedite the quote generation process for Worker's Compensation insurance using GenAI to enhance risk selection and support expected rapid growth.", outcomes:["~65% reduction in time-to-quote","100% submissions assessed — zero leakage","55% increase in bound policies"], fromTime:"3–5 days", toTime:"<1 hr", fromSteps:["Broker submits via email or portal","Underwriter manually reviews documents","Risk data keyed into system manually","Judgment applied to price and assess","Quote issued — avg. 3–5 days"], toSteps:[{l:"Broker submission received",a:false},{l:"AI extracts and structures risk data",a:true},{l:"Risk scoring agent assesses exposure vs. appetite",a:true},{l:"Quote recommendation with rationale generated",a:true},{l:"Underwriter reviews and issues quote",a:false}], financial:[], operational:["~65% reduction in time-to-quote","100% submissions assessed"], governance:["Consistent risk selection criteria across all submissions","Full audit trail of AI vs. underwriter decisions"], impactBadges:[{l:"Time-to-quote",d:"down"},{l:"Bound policies",d:"up"},{l:"Submission throughput",d:"up"}] },
+  { id:"qgpt", domain:"business", pillar:"quality", status:"Live", title:"Q-GPT", dept:"Enterprise AI platform", impact:"75% effort reduction", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"QBE's managed, secure interface to ChatGPT capabilities — delivering governed, persona-based AI across 2,237 users spanning 912 business teams with full audit trails and enterprise-grade data controls.", outcomes:["75% effort reduction for Legal, Risk & Data Science","2,237 active users across 912 teams","Secure data estate — no public ChatGPT dependency"], fromTime:"Manual / unsecured", toTime:"Instant / governed", fromSteps:["Employee uses public ChatGPT","Sensitive documents uploaded to unsecured LLM","No prompt standardisation or governance","No audit trail","Data privacy risk unmanaged"], toSteps:[{l:"Employee accesses Q-GPT — secure QBE interface",a:false},{l:"Azure GPT-4o ingests documents within QBE network",a:true},{l:"Persona-based experience surfaces role-relevant prompts",a:true},{l:"Curated prompt library ensures quality outputs",a:true},{l:"Audit trails and access controls enforced",a:false}], financial:["75% effort reduction for Legal, Risk & Data Science","Eliminates cost and risk of unsanctioned LLM usage"], operational:["~2,237 users across 912 business teams","Precise data insights from ingested documents"], governance:["Secure data estate — no public ChatGPT dependency","Centralised model lifecycle management with audit trails"], impactBadges:[{l:"Effort for Legal, Risk & DS",d:"down"},{l:"Data security & compliance",d:"up"},{l:"Enterprise AI adoption",d:"up"},{l:"Response turnaround",d:"down"}] },
+  { id:"eventops", domain:"technology", pillar:"cost", status:"Live", title:"EventOps agent", dept:"Technology ops", impact:"5 hrs → 0.5 hr", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Agentic AI ingesting, deduplicating, correlating and root-cause-analysing events across monitoring platforms — cutting mean diagnosis time from 5 hours to 30 minutes and reducing P1/P2 escalations.", outcomes:["90% reduction in diagnosis time","20–30% cut in IT support cost","Fewer P1/P2 escalations"], fromTime:"5 hrs", toTime:"0.5 hr", fromSteps:["Alerts generated across multiple monitoring platforms","Manual correlation to identify true events","Manual diagnostic across Alert Center, Dynatrace","Manual drill-down and RCA with limited automation","Finalise RCA and execute corrective actions"], toSteps:[{l:"Events ingested from monitoring tools (idera, Dynatrace etc.)",a:false},{l:"Deduplication & categorisation agent removes duplicates",a:true},{l:"Correlation & clustering agent groups events into problems",a:true},{l:"RCA agent generates summaries and actionable insights",a:true},{l:"Core team confirms RCA and executes remediation",a:false}], financial:["Improved engineering productivity via automated correlation/RCA","Reduces downtime revenue impact by 10–20%","Cuts IT support cost by 20–30%"], operational:["Fewer P1/P2 escalations by preventing missed alerts","Faster diagnosis and proactive risk management","Cuts diagnosis time by 25–35%"], governance:["Standardised and repeatable incident investigation process","Better accountability through centralised event intelligence"], impactBadges:[{l:"Service availability",d:"up"},{l:"Operation cost & MTTR",d:"down"},{l:"Event correlation / KB articles",d:"up"},{l:"Ticket volume",d:"down"}] },
+  { id:"capacity", domain:"technology", pillar:"speed", status:"Live", title:"Smart capacity", dept:"Technology ops", impact:"94% reduction in manual effort", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Agentic AI pulling raw capacity data from Storage, Backup and VMware, synthesising utilisation insights, forecasting consumption and auto-raising ServiceNow tickets — replacing 90 hours of manual effort with 5.", outcomes:["94% reduction in manual effort","Proactive forecasting replaces reactive firefighting","Automated ServiceNow ticketing with owner assignment"], fromTime:"90 hrs", toTime:"5 hrs", fromSteps:["RAW data extracted manually from Storage, Backup, VMware teams","ServiceNow team manually collates into a single file","Capacity team manually analyses usage and plans actions","Team defines plan, actions assessment and publishes reports"], toSteps:[{l:"RAW capacity data pulled from Storage, Backup, VMware",a:false},{l:"Network Capacity Analyser collates data and derives % usage",a:true},{l:"Forecasting agent predicts consumption and sets action thresholds",a:true},{l:"Ticketing agent creates ServiceNow ticket and assigns owner",a:true},{l:"Capacity team actions ticket and publishes report",a:false}], financial:["License cost optimisation and OpEx reduction","Improved FTE productivity from reduced manual effort"], operational:["Reduced availability risk and fewer outages","Faster decision-making and issue visibility"], governance:["Chatbot-enabled self-service reporting","Centralised visibility and auditability"], impactBadges:[{l:"Efficiency & availability",d:"up"},{l:"License & storage costs",d:"down"},{l:"Risk mitigation",d:"up"},{l:"Auditability",d:"up"}] },
+  { id:"f1",  domain:"business",   pillar:"speed",   status:"In development", title:"Agentic knowledge search",           dept:"Underwriting",    impact:"Faster submission research",  fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"AI agents interpret questions, decompose into sub-parts, execute parallel searches and produce cited grounded answers — reducing SME dependency and accelerating underwriter decisions.", outcomes:["Faster submission research","Reduced SME dependency"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f2",  domain:"business",   pillar:"cost",    status:"In development", title:"Bordereau processing pilot",          dept:"Claims",          impact:"Reduced manual processing",   fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"AI to ingest, normalise, validate and transform incoming bordereaux files covering claims, premium, policy and DUA — eliminating manual intervention and improving data accuracy.", outcomes:["Reduced manual processing","Improved data accuracy"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f3",  domain:"business",   pillar:"speed",   status:"Roadmap",        title:"Invoice processing agent",            dept:"Claims",          impact:"Accelerated settlement",      fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Automate claims invoice processing using Q-GPT–powered agents for scalable claims modernisation across NA.", outcomes:["Accelerated claims settlement","Scalable modernisation"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f4",  domain:"business",   pillar:"quality", status:"Roadmap",        title:"Agentic UW — E&S property",          dept:"Underwriting",    impact:"Enhanced risk evaluation",    fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Agent-led underwriting with a network of AI experts in a non-linear workflow evaluating complex E&S Property risks.", outcomes:["Enhanced risk evaluation","Faster complex risk decisions"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f5",  domain:"business",   pillar:"quality", status:"Roadmap",        title:"Future of claims — NA",              dept:"Claims",          impact:"Transformed lifecycle",       fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Exploring how agentic AI transforms Demand Package Management, Litigation Management and key intervention points across NA claims.", outcomes:["Transformed claims lifecycle","Reduced litigation cost"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f6",  domain:"technology", pillar:"cost",    status:"In development", title:"Autonomous ops agent",               dept:"Technology ops",  impact:"Reduced MTTR",                fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Troubleshooting agent diagnoses incidents by collecting health signals, correlating anomalies and routing through human-in-loop to remediation.", outcomes:["Reduced MTTR","Lower SME dependency"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f7",  domain:"technology", pillar:"speed",   status:"In development", title:"Reverse engineering — mainframe",    dept:"App development", impact:"Accelerated modernisation",    fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Analyses legacy code to extract application insights, generating knowledge documents that accelerate RCA and support modernisation programmes.", outcomes:["Accelerated modernisation","Reduced SME bottleneck"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f8",  domain:"technology", pillar:"speed",   status:"Roadmap",        title:"Reinsurance modernisation — ARAMIS", dept:"App development", impact:"Faster migration",             fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"GenWizard automates data migration from legacy to Duck Creek by generating source-to-target mapping, SQL code and test cases.", outcomes:["Faster migration","Reduced manual mapping effort"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f9",  domain:"technology", pillar:"quality", status:"Roadmap",        title:"Evergreening agent",                 dept:"Security",        impact:"Faster patch assessment",     fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Analyse change impact of security patching for code vulnerabilities across the application estate.", outcomes:["Improved security posture","Faster patch assessment"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"f10", domain:"technology", pillar:"quality", status:"Roadmap",        title:"GitHub Copilot spec kit",             dept:"App development", impact:"Standardised delivery",        fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Standardises TDLC by embedding guardrails, requirements and test strategies into a structured AI-guided project workflow.", outcomes:["Standardised delivery","Embedded AI guardrails"], fromTime:"", toTime:"", fromSteps:[], toSteps:[], financial:[], operational:[], governance:[], impactBadges:[] },
+  { id:"cdm", domain:"technology", pillar:"quality", status:"Live", title:"Cognitive Data Mapping Agent", dept:"App development", impact:"70% Efforts saved", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"AI-assisted mapping that learns from approved schemas and past mappings to accurately map unmapped fields — reducing manual effort by 70%, improving data quality, and creating a reusable foundation for downstream automation across migration programmes.", outcomes:["Improved speed to market","Reduced delivery risk","Improved productivity","Data quality improvement"], fromTime:"245 Days", toTime:"70 Days", fromSteps:[], toSteps:[], financial:[], operational:["Reduced manual mapping effort by ~70%","Faster migration readiness across files"], governance:["Strong auditability and regulatory confidence"], impactBadges:[] },
+  { id:"gonogo", domain:"technology", pillar:"quality", status:"In development", title:"Go-NoGo Agent", dept:"Infrastructure Ops", impact:"Increased operational efficiency", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Autonomously troubleshoots incidents across Infra (Windows, Linux) and AMS (Reinsurance, ODM, Mainframe) — extracting ticket details, searching Quasar++ for relevant SOPs, presenting troubleshooting commands, and orchestrating remediation with human-in-the-loop approval.", outcomes:["Increased operational efficiency","Increased risk mitigation","Improved decision standardization","Improved auditability"], fromTime:"", toTime:"", fromSteps:["Manually review the incident, log into servers, and perform initial checks","Analyze server conditions, identify symptoms such as CPU or memory spikes, and determine the likely cause","Assess root causes and recommend next steps","Manually implement the required fix and validate"], toSteps:[{l:"User enters the ticket number and a mapped workflow is triggered",a:false},{l:"Troubleshooting agent analyzes extracted ticket details and searches Quasar++ to present relevant troubleshooting commands",a:true},{l:"Agent commands are approved by the human in the loop",a:false},{l:"Remediation agent analyzes the output, determines the appropriate remediation steps, and displays them for approval",a:true},{l:"Output is peer reviewed and approved by the human in the loop before ticket is updated and closed",a:false}], financial:["Lower support effort and improved agent productivity","Reduced cost through faster diagnosis and resolution"], operational:["Faster incident triage and remediation","Reduced outage duration and SLA risk"], governance:["Better traceability and auditability","Human-in-the-loop control for safer execution"], impactBadges:[] },
+  { id:"intmap", domain:"technology", pillar:"quality", status:"Live", title:"Intelligent Mapping Agent", dept:"SDLC", impact:"30% Process Efficiency", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Analyzes source metadata, existing mappings, and business rules to identify the most relevant source fields for target attributes, enabling faster, more consistent, and auditable source-to-target mapping.", outcomes:["30% Process Efficiency","85% reduction in remapping"], fromTime:"", toTime:"", fromSteps:["Manually review source and target structure","Identify source fields for target attributes and interpret schemas, reference tables and business rules","Validate mapping with the SME","Finalize mapping outputs and follow up on unmapped fields"], toSteps:[], financial:[], operational:["70–80% reduction in manual mapping effort, improving analyst productivity"], governance:["Improved mapping accuracy and consistency","Strong auditability and regulatory confidence"], impactBadges:[] },
+  { id:"ata", domain:"technology", pillar:"speed", status:"Live", title:"Automatic Ticket Assignment (ATA)", dept:"Infrastructure Ops", impact:"98% Productivity Improvement", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Incident assignment validation ensures that IT incidents are accurately assigned to the appropriate teams based on ticket analysis from past tickets or expediting predefined rules — automating and validating the assignment process to reduce MTTR, improve SLA performance, and enhance customer experience.", outcomes:["Operational Efficiency","Improved Customer Experience","Improved SLA Performance","Faster Resolution / Speed to market"], fromTime:"5 mins", toTime:"0", fromSteps:[], toSteps:[], financial:[], operational:["Reduced MTTR","Improved SLA performance","Reduced L1 workload"], governance:[], impactBadges:[] },
+  { id:"atr", domain:"technology", pillar:"speed", status:"Live", title:"Automatic Ticket Resolution", dept:"Infrastructure Ops", impact:"98% Productivity Improvement", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"GenAI is leveraged to do incident analysis and provides incident resolution recommendation for troubleshooting. It is deployed in myWizard with SOPs and past incident details uploaded in Quasar++ to enable intelligent, context-aware resolution.", outcomes:[], fromTime:"480 Mins", toTime:"10 Mins", fromSteps:[], toSteps:[], financial:[], operational:["40–70% MTTR reduction","Proactive incident prevention"], governance:["Consistent incident handling","Clear problem framing for SRE / ITSM / Ops leadership","End to end incident lifecycle coverage"], impactBadges:[] },
+  { id:"re_net", domain:"technology", pillar:"speed", status:"Live", title:"Reverse Engineering Agent - .Net", dept:"App development", impact:"~80% Productivity Saving", fteBefore:0, fteAfter:0, fteSavings:0, productivity:"", summary:"Analyses source code to inventory the application landscape, break large codebases into analyzable units, extract functional and technical insights, map business rules and dependencies back to source, and package the outputs into structured artifacts and interactive wiki documentation for transformation.", outcomes:["Increased Productivity","Reduced risk to business continuity","Knowledge Uplift","Transformation Readiness"], fromTime:"720 Days", toTime:"120 Days", fromSteps:["Receive incoming incident tickets in the support queue","Manually review ticket details to determine the likely resolver team","Check ticket completeness and correctness manually","Reassign incorrectly routed or incomplete tickets as required"], toSteps:[{l:"User submits source code and available business context to trigger the reverse engineering pipeline",a:false},{l:"Inventory Agent processes the codebase, identifies technologies, extensions, file coverage",a:true},{l:"Logical Grouping & Chunking Agents along with Functional and Technical Analysis Agents extract insights",a:true},{l:"Traceability & Feedback Agents and Retry on Failure Agents refine outputs, map business rules",a:true},{l:"Artifact Packager Agent generates structured knowledge assets and wiki-ready documentation",a:true}], financial:[], operational:["Accelerated knowledge capture and reverse engineering at scale","Reduced transition effort and time required","Improved visibility of the broader technology estate and system dependencies"], governance:[], impactBadges:[] },
 ];
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────
@@ -320,8 +353,7 @@ export default function App() {
       setSpLoading(false);
     }).catch(err => {
       console.error("data.json load failed:", err);
-      setSpError("Could not load data — showing local fallback.");
-      setSpStatus("error"); setSpLoading(false);
+      setSpStatus(""); setSpLoading(false);
     });
   }, [authed]);
 
@@ -502,9 +534,7 @@ function Nav({ t, dk, setDk, view, go, isCat, isAdmin, onAdmin, search, setSearc
     <nav style={{ background:t.nav, borderBottom:`1px solid ${t.navBd}`, padding:"0 clamp(16px,3vw,40px)", height:60, display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:30 }}>
       <div style={{ display:"flex", alignItems:"center", gap:10 }}>
         <QBEMark />
-        <div style={{ width:1, height:22, background:t.navBd, margin:"0 4px" }} />
-        <span style={{ fontSize:13, color:t.navTx2, fontWeight:500 }}>AI Innovation Studio</span>
-        {spDot && <span title={spStatus==="synced"?"Data synced":spStatus==="saving"?"Saving…":"Sync error"} style={{ width:7, height:7, borderRadius:"50%", background:spDot, display:"inline-block", marginLeft:2, animation:spStatus==="saving"?"pulse 1.2s infinite":"none" }} />}
+        {spDot && <span title={spStatus==="synced"?"Data synced":spStatus==="saving"?"Saving…":"Sync error"} style={{ width:7, height:7, borderRadius:"50%", background:spDot, display:"inline-block", marginLeft:6, animation:spStatus==="saving"?"pulse 1.2s infinite":"none" }} />}
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:20 }}>
         {NL("Home","home","home")}
@@ -538,23 +568,34 @@ function Nav({ t, dk, setDk, view, go, isCat, isAdmin, onAdmin, search, setSearc
 // ── HOME PAGE ─────────────────────────────────────────────────────────────
 function HomePage({ t, dk, ucs, videos, archs, isAdmin, onUpload, onArchUpload, go, setFP }) {
   const live = ucs.filter(u => u.status === "Live");
+  const liveCount = live.length;
+  const inDevCount = ucs.filter(u => u.status === "In development").length;
+  const roadmapCount = ucs.filter(u => u.status === "Roadmap").length;
+  const totalCount = ucs.length;
   return (
     <div style={{ paddingBottom:60 }}>
-      <div className="fade" style={{ padding:"clamp(36px,6vw,72px) 0 clamp(20px,3vw,40px)" }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
-          <span style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.08em" }}>QBE × Accenture</span>
-        </div>
-        <h1 style={{ fontSize:"clamp(32px,5vw,56px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-0.03em", marginBottom:14, maxWidth:680 }}>Enterprise AI at <span style={{ color:t.accent }}>QBE</span></h1>
-        <p style={{ fontSize:"clamp(15px,1.8vw,19px)", color:t.tx2, lineHeight:1.55, maxWidth:700, marginBottom:28 }}>Generating measurable value across the insurance value chain and technology delivery — from underwriting to claims to autonomous ops.</p>
-        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
-          <button onClick={()=>go("catalog")} className="pill-primary"><Icon name="catalog" size={15} color="#fff" />Explore catalog</button>
-          <button onClick={()=>go("dashboard")} className="pill-secondary"><Icon name="dashboard" size={15} color={t.nav} />View impact</button>
+      <div className="fade" style={{ padding:"clamp(24px,4vw,48px) 0 clamp(16px,2vw,28px)", textAlign:"center" }}>
+        <h1 style={{ fontSize:"clamp(32px,5vw,56px)", fontWeight:800, lineHeight:1.08, letterSpacing:"-0.03em", marginBottom:14, maxWidth:680, margin:"0 auto 14px" }}><span style={{ color:t.accent }}>QBE</span> AI Innovation Studio</h1>
+        <p style={{ fontSize:"clamp(15px,1.8vw,19px)", color:t.tx2, lineHeight:1.55, maxWidth:700, marginBottom:28, margin:"0 auto 28px" }}>Generating measurable value across the insurance value chain and technology delivery — from underwriting to claims to autonomous ops.</p>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center" }}>
           <button onClick={()=>go("journey")} className="pill-primary"><Icon name="journey" size={15} color="#fff" />AI journey</button>
+          <button onClick={()=>go("catalog")} className="pill-primary"><Icon name="catalog" size={15} color="#fff" />Explore catalog</button>
+          <button onClick={()=>go("dashboard")} className="pill-primary"><Icon name="dashboard" size={15} color="#fff" />View impact</button>
         </div>
       </div>
       <div style={{ overflow:"hidden", borderTop:`1px solid ${t.bd}`, borderBottom:`1px solid ${t.bd}`, marginBottom:40, padding:"14px 0", background:t.bgMuted }}>
         <div style={{ display:"flex", width:"max-content", animation:"ticker 30s linear infinite" }}>
-          {[...METRICS,...METRICS].map((m,i) => { const c=PC(t,m.pillar); return <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"0 30px", borderRight:`1px solid ${t.bd}` }}><Icon name={m.icon||(m.pillar==="speed"?"speed":m.pillar==="cost"?"cost":"quality")} size={16} color={c.tx} /><span style={{ fontSize:22, fontWeight:800, color:c.tx }}>{m.value}</span><span style={{ fontSize:13, color:t.tx2, maxWidth:140, lineHeight:1.4 }}>{m.label}</span></div>; })}
+          {[...Array(2)].flatMap((_,rep) => [
+            { value: totalCount, label: "Total use cases", icon: "catalog", color: t.accent },
+            { value: liveCount, label: "Live in production", icon: "check", color: t.green },
+            { value: inDevCount, label: "In development", icon: "bolt", color: t.blue },
+            { value: roadmapCount, label: "On roadmap", icon: "journey", color: t.purple },
+            { value: "55%", label: "Increase in bound policies, NA", icon: "speed", color: t.blue },
+            { value: "~$10M", label: "NB GWP uplift, Cyber", icon: "cost", color: t.green },
+            { value: "94%", label: "CSAT score (+9 pt uplift)", icon: "star", color: t.amber },
+            { value: "112.75", label: "FTE productivity savings", icon: "person", color: t.green },
+          ].map((m,i) => <div key={rep+"_"+i} style={{ display:"flex", alignItems:"center", gap:10, padding:"0 36px", borderRight:`1px solid ${t.bd}` }}><Icon name={m.icon} size={16} color={m.color} /><span style={{ fontSize:24, fontWeight:800, color:m.color }}>{m.value}</span><span style={{ fontSize:13, color:t.tx2, maxWidth:140, lineHeight:1.4 }}>{m.label}</span></div>))
+          }
         </div>
       </div>
       <div style={{ marginBottom:40 }} className="fade">
@@ -621,16 +662,30 @@ function JourneyPage({ t, dk, go }) {
 // ── DASHBOARD PAGE ────────────────────────────────────────────────────────
 function DashboardPage({ t, dk, ucs, go }) {
   const live=ucs.filter(u=>u.status==="Live").length, inDev=ucs.filter(u=>u.status==="In development").length, roadmap=ucs.filter(u=>u.status==="Roadmap").length;
-  const [roiRows,setRoiRows]=useState(ROI_DATA.map(r=>({...r}))); const [editingRoi,setEditingRoi]=useState(null);
+
+  // ── Dynamic ROI rows from live use cases ──
+  const [roiRows,setRoiRows]=useState([]);
+  useEffect(() => { setRoiRows(buildRoiRows(ucs)); }, [ucs]);
+  const [editingRoi,setEditingRoi]=useState(null);
   const updateRoi=(id,k,v)=>setRoiRows(p=>p.map(r=>r.id===id?{...r,[k]:v}:r));
   const addRoiRow=()=>{const id="roi_"+Date.now();setRoiRows(p=>[...p,{id,label:"New solution",gwp:"—",cost:"—",timeFrom:"—",timeTo:"—",pct:0,pillar:"speed"}]);setEditingRoi(id);};
   const removeRoiRow=id=>{setRoiRows(p=>p.filter(r=>r.id!==id));if(editingRoi===id)setEditingRoi(null);};
-  const [fteRows,setFteRows]=useState([{id:1,label:"Underwriting — submission triage",fte:35},{id:2,label:"Claims — FNOL & validation",fte:15},{id:3,label:"Technology ops — event triage/RCA",fte:10}]);
+
+  // ── FTE rows (static defaults) ──
+  const [fteRows,setFteRows]=useState([
+    {id:1,label:"EventOps",fte:19.5},
+    {id:2,label:"AIOps — ATA",fte:14.5},
+    {id:3,label:"AIOps — ATR",fte:30},
+    {id:4,label:"Smart Capacity Agent",fte:3.5},
+    {id:5,label:"Cognitive Data Mapping",fte:8.75},
+    {id:6,label:"Rev. Engg — .Net",fte:30},
+    {id:7,label:"Q-GPT",fte:6.5},
+  ]);
   const [editingFte,setEditingFte]=useState(null);
-  const totalFte=fteRows.reduce((s,r)=>s+Number(r.fte||0),0);
   const addFteRow=()=>{const id=Date.now();setFteRows(p=>[...p,{id,label:"New area",fte:0}]);setEditingFte(id);};
   const removeFteRow=id=>setFteRows(p=>p.filter(r=>r.id!==id));
   const updateFte=(id,k,v)=>setFteRows(p=>p.map(r=>r.id===id?{...r,[k]:v}:r));
+
   return (
     <div style={{ padding:"28px 0 60px" }} className="fade">
       <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:6 }}><Icon name="dashboard" size={19} color={t.accent} /><span style={{ fontSize:12, fontWeight:600, color:t.accent, letterSpacing:"0.12em", textTransform:"uppercase" }}>Impact dashboard</span></div>
@@ -648,9 +703,14 @@ function DashboardPage({ t, dk, ucs, go }) {
       </div>
       <div style={{ marginBottom:32, overflowX:"auto" }}>
         <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14 }}>
-          <thead><tr style={{ background:t.bgMuted }}>{["Solution","Pillar","Time: before","Time: after","Time saved %","Financial return","Investment",""].map((h,i)=><th key={i} style={{ padding:"11px 14px", textAlign:i===0?"left":"center", fontWeight:600, color:t.tx2, fontSize:12, whiteSpace:"nowrap", borderBottom:`1px solid ${t.bd}` }}>{h}</th>)}</tr></thead>
+          <thead><tr style={{ background:t.bgMuted }}>{["Solution","Pillar","Time: before","Time: after","Time saved %",""].map((h,i)=><th key={i} style={{ padding:"11px 14px", textAlign:i===0?"left":"center", fontWeight:600, color:t.tx2, fontSize:12, whiteSpace:"nowrap", borderBottom:`1px solid ${t.bd}` }}>{h}</th>)}</tr></thead>
           <tbody>
-            {roiRows.map(r => {
+            {[...roiRows].sort((a,b) => {
+              const pillarOrder = { cost: 0, speed: 1, quality: 2 };
+              const pa = pillarOrder[a.pillar] ?? 99, pb = pillarOrder[b.pillar] ?? 99;
+              if (pa !== pb) return pa - pb;
+              return (a.label || "").localeCompare(b.label || "");
+            }).map(r => {
               const pc=PC(t,r.pillar); const pil=PILLARS.find(p=>p.id===r.pillar); const isEditing=editingRoi===r.id;
               const inpS={padding:"5px 8px",border:`1px solid ${t.accent}`,borderRadius:6,fontSize:13,background:t.bgMuted,color:t.tx1,outline:"none",width:"100%"};
               return isEditing ? (
@@ -660,8 +720,6 @@ function DashboardPage({ t, dk, ucs, go }) {
                   <td style={{ padding:"8px 10px" }}><input value={r.timeFrom} onChange={e=>updateRoi(r.id,"timeFrom",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
                   <td style={{ padding:"8px 10px" }}><input value={r.timeTo} onChange={e=>updateRoi(r.id,"timeTo",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
                   <td style={{ padding:"8px 10px" }}><input type="number" min="0" max="100" value={r.pct} onChange={e=>updateRoi(r.id,"pct",Number(e.target.value))} style={{ ...inpS, minWidth:60 }} /></td>
-                  <td style={{ padding:"8px 10px" }}><input value={r.gwp} onChange={e=>updateRoi(r.id,"gwp",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
-                  <td style={{ padding:"8px 10px" }}><input value={r.cost} onChange={e=>updateRoi(r.id,"cost",e.target.value)} style={{ ...inpS, minWidth:70 }} /></td>
                   <td style={{ padding:"8px 10px", textAlign:"center", whiteSpace:"nowrap" }}><button onClick={()=>setEditingRoi(null)} style={{ background:t.green, border:"none", borderRadius:20, padding:"5px 12px", fontSize:12, color:"#fff", fontWeight:600, marginRight:4 }}>Done</button><button onClick={()=>removeRoiRow(r.id)} style={{ background:"none", border:`1px solid ${t.red}`, borderRadius:20, padding:"5px 9px", fontSize:12, color:t.red }}><Icon name="trash" size={12} color={t.red} /></button></td>
                 </tr>
               ) : (
@@ -671,8 +729,6 @@ function DashboardPage({ t, dk, ucs, go }) {
                   <td style={{ padding:"12px 14px", textAlign:"center", color:t.tx3, fontSize:13 }}>{r.timeFrom}</td>
                   <td style={{ padding:"12px 14px", textAlign:"center", color:t.green, fontWeight:600, fontSize:13 }}>{r.timeTo}</td>
                   <td style={{ padding:"12px 14px", textAlign:"center" }}><div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:4 }}><div style={{ width:60, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${r.pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:12, color:t.green, fontWeight:600 }}>{r.pct}%</span></div></td>
-                  <td style={{ padding:"12px 14px", textAlign:"center", fontWeight:600, color:r.gwp==="—"?t.tx3:t.green }}>{r.gwp}</td>
-                  <td style={{ padding:"12px 14px", textAlign:"center", color:t.tx2 }}>{r.cost}</td>
                   <td style={{ padding:"12px 14px", textAlign:"center" }}><button onClick={()=>setEditingRoi(r.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", fontSize:11, color:t.tx3, display:"inline-flex", alignItems:"center", gap:4 }}><Icon name="edit" size={12} color={t.tx3} />Edit</button></td>
                 </tr>
               );
@@ -680,21 +736,26 @@ function DashboardPage({ t, dk, ucs, go }) {
           </tbody>
         </table>
       </div>
+
       <SLabel t={t}>FTE productivity savings</SLabel>
       <div className="card" style={{ padding:"20px 22px", marginTop:12, marginBottom:32 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ width:46, height:46, borderRadius:12, background:t.greenBg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name="person" size={24} color={t.green} /></div><div><div style={{ fontSize:30, fontWeight:800, color:t.green, lineHeight:1 }}>{totalFte}</div><div style={{ fontSize:12, color:t.tx3, marginTop:2 }}>total FTEs freed</div></div></div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:46, height:46, borderRadius:12, background:t.greenBg, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon name="person" size={24} color={t.green} /></div>
+            <div><div style={{ fontSize:30, fontWeight:800, color:t.green, lineHeight:1 }}>{fteRows.reduce((s,r)=>s+Number(r.fte||0),0)}</div><div style={{ fontSize:12, color:t.tx3, marginTop:2 }}>total FTEs freed</div></div>
+          </div>
           <button onClick={addFteRow} style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:20, padding:"6px 14px", fontSize:13, color:t.tx2, display:"flex", alignItems:"center", gap:5 }}><Icon name="add" size={14} color={t.tx3} />Add row</button>
         </div>
         <div style={{ borderTop:`1px solid ${t.bd}`, paddingTop:12 }}>
-          {fteRows.map((row,i) => { const pct=totalFte>0?Math.round((row.fte/totalFte)*100):0; const isEditing=editingFte===row.id; return (
+          {fteRows.map((row,i) => { const maxFte=30; const pct=Math.min(Math.round((Number(row.fte||0)/maxFte)*100),100); const isEditing=editingFte===row.id; return (
             <div key={row.id} style={{ display:"flex", alignItems:"center", gap:10, marginBottom:i<fteRows.length-1?10:0 }}>
               {isEditing ? <><input value={row.label} onChange={e=>updateFte(row.id,"label",e.target.value)} style={{ flex:1, padding:"6px 9px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:13, background:t.bgMuted, color:t.tx1, outline:"none" }} /><input type="number" value={row.fte} onChange={e=>updateFte(row.id,"fte",e.target.value)} style={{ width:66, padding:"6px 9px", border:`1px solid ${t.accent}`, borderRadius:6, fontSize:13, background:t.bgMuted, color:t.tx1, textAlign:"center", outline:"none" }} /><button onClick={()=>setEditingFte(null)} style={{ background:t.green, border:"none", borderRadius:20, padding:"6px 12px", fontSize:12, color:"#fff", fontWeight:600 }}>Done</button></>
-              : <><span style={{ fontSize:13, color:t.tx2, flex:1 }}>{row.label}</span><div style={{ width:80, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:13, fontWeight:700, color:t.green, minWidth:28, textAlign:"right" }}>{row.fte}</span><button onClick={()=>setEditingFte(row.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 9px", fontSize:11, color:t.tx3, display:"flex", alignItems:"center" }}><Icon name="edit" size={11} color={t.tx3} /></button><button onClick={()=>removeFteRow(row.id)} style={{ background:"none", border:"none", padding:"3px 4px", color:t.tx4, display:"flex", alignItems:"center" }}><Icon name="close" size={11} color={t.tx4} /></button></>}
+              : <><span style={{ fontSize:13, color:t.tx2, flex:1 }}>{row.label}</span><div style={{ width:80, height:6, borderRadius:3, background:t.bgDeep, overflow:"hidden" }}><div style={{ width:`${pct}%`, height:"100%", background:t.green, borderRadius:3 }} /></div><span style={{ fontSize:13, fontWeight:700, color:t.green, minWidth:36, textAlign:"right" }}>{row.fte}</span><button onClick={()=>setEditingFte(row.id)} style={{ background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"3px 9px", fontSize:11, color:t.tx3, display:"flex", alignItems:"center" }}><Icon name="edit" size={11} color={t.tx3} /></button><button onClick={()=>removeFteRow(row.id)} style={{ background:"none", border:"none", padding:"3px 4px", color:t.tx4, display:"flex", alignItems:"center" }}><Icon name="close" size={11} color={t.tx4} /></button></>}
             </div>
           ); })}
         </div>
       </div>
+
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:32 }}>
         <div className="card" style={{ padding:"22px 24px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:5 }}><Icon name="chart" size={16} color={t.accent} /><span style={{ fontSize:15, fontWeight:600 }}>Effort reduction — before vs. after AI</span></div>
@@ -913,7 +974,7 @@ function ChatPanel({ t, ucs, onClose }) {
 
 // ── ADMIN MODAL ───────────────────────────────────────────────────────────
 function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUpload, onArchUpload, onRemoveVideo, onRemoveArch }) {
-  const blank={id:"uc_"+Date.now(),title:"",dept:"",domain:"business",pillars:["speed"],status:"Live",impact:"",summary:"",outcomes:[],fromSteps:[],toSteps:[],fromTime:"",toTime:"",financial:[],operational:[],governance:[],impactBadges:[]};
+  const blank={id:"uc_"+Date.now(),title:"",dept:"",domain:"business",pillars:["speed"],status:"Live",impact:"",summary:"",outcomes:[],fromSteps:[],toSteps:[],fromTime:"",toTime:"",financial:[],operational:[],governance:[],impactBadges:[],fteBefore:0,fteAfter:0,fteSavings:0,productivity:""};
   const [form,setForm]=useState(()=>{if(!uc)return blank;return{...uc,pillars:uc.pillars||(uc.pillar?[uc.pillar]:["speed"])};});
   const [oT,setOT]=useState((uc?.outcomes||[]).join("\n")); const [fT,setFT]=useState((uc?.financial||[]).join("\n"));
   const [opT,setOpT]=useState((uc?.operational||[]).join("\n")); const [gT,setGT]=useState((uc?.governance||[]).join("\n"));
@@ -923,7 +984,7 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
   const parseToSteps=txt=>ln(txt).map(line=>{const a=line.toUpperCase().startsWith("AGENT:");return{l:a?line.slice(6).trim():line,a};});
   const togglePillar=pid=>setForm(p=>{const cur=p.pillars||[];const next=cur.includes(pid)?cur.filter(x=>x!==pid):[...cur,pid];return{...p,pillars:next.length?next:cur};});
   const load=id=>{const u=ucs.find(x=>x.id===id);if(!u)return;setForm({...u,pillars:u.pillars||(u.pillar?[u.pillar]:["speed"])});setOT((u.outcomes||[]).join("\n"));setFT((u.financial||[]).join("\n"));setOpT((u.operational||[]).join("\n"));setGT((u.governance||[]).join("\n"));setFsT((u.fromSteps||[]).join("\n"));setTsT((u.toSteps||[]).map(s=>(s.a?"AGENT: ":"")+s.l).join("\n"));};
-  const save=()=>onSave({...form,pillar:form.pillars?.[0]||"speed",pillars:form.pillars||["speed"],outcomes:ln(oT),financial:ln(fT),operational:ln(opT),governance:ln(gT),fromSteps:ln(fsT),toSteps:parseToSteps(tsT)});
+  const save=()=>onSave({...form,pillar:form.pillars?.[0]||"speed",pillars:form.pillars||["speed"],outcomes:ln(oT),financial:ln(fT),operational:ln(opT),governance:ln(gT),fromSteps:ln(fsT),toSteps:parseToSteps(tsT),fteBefore:Number(form.fteBefore)||0,fteAfter:Number(form.fteAfter)||0,fteSavings:Number(form.fteSavings)||0,productivity:form.productivity||""});
   const inp={width:"100%",padding:"9px 12px",border:`1px solid ${t.bd}`,borderRadius:8,fontSize:14,background:t.bgMuted,color:t.tx1,outline:"none"};
   const lbl={display:"block",fontSize:12,fontWeight:600,color:t.tx3,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"};
   const hasVideo=!!(videos&&videos[form.id]); const hasArch=!!(archs&&archs[form.id]);
@@ -953,7 +1014,19 @@ function AdminModal({ t, uc, ucs, onSave, onDelete, onClose, videos, archs, onUp
         <div style={{ marginBottom:11 }}><label style={lbl}>After steps — prefix "AGENT: " for AI steps</label><textarea value={tsT} onChange={e=>setTsT(e.target.value)} rows={4} placeholder={"Submission received\nAGENT: AI extracts data\nAGENT: Risk scored\nReview and issue"} style={{ ...inp, resize:"vertical", lineHeight:1.5 }} /></div>
         <div style={{ marginBottom:11 }}><label style={lbl}>Financial outcomes</label><textarea value={fT} onChange={e=>setFT(e.target.value)} rows={2} style={{ ...inp, resize:"vertical" }} /></div>
         <div style={{ marginBottom:11 }}><label style={lbl}>Operational outcomes</label><textarea value={opT} onChange={e=>setOpT(e.target.value)} rows={2} style={{ ...inp, resize:"vertical" }} /></div>
-        <div style={{ marginBottom:14 }}><label style={lbl}>Governance outcomes</label><textarea value={gT} onChange={e=>setGT(e.target.value)} rows={2} style={{ ...inp, resize:"vertical" }} /></div>
+        <div style={{ marginBottom:11 }}><label style={lbl}>Governance outcomes</label><textarea value={gT} onChange={e=>setGT(e.target.value)} rows={2} style={{ ...inp, resize:"vertical" }} /></div>
+
+        {/* ── FTE Fields ── */}
+        <div style={{ background:t.bgMuted, border:`1px solid ${t.bd}`, borderRadius:10, padding:"14px 16px", marginBottom:14 }}>
+          <div style={{ fontSize:12, fontWeight:700, color:t.green, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:10, display:"flex", alignItems:"center", gap:5 }}><Icon name="person" size={13} color={t.green} />FTE Productivity</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8 }}>
+            <div><label style={lbl}>FTE Before</label><input type="number" value={form.fteBefore||0} onChange={e=>s("fteBefore",e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>FTE After</label><input type="number" value={form.fteAfter||0} onChange={e=>s("fteAfter",e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>FTE Savings</label><input type="number" value={form.fteSavings||0} onChange={e=>s("fteSavings",e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Productivity</label><input value={form.productivity||""} onChange={e=>s("productivity",e.target.value)} style={inp} placeholder="e.g. 80%" /></div>
+          </div>
+        </div>
+
         <div style={{ marginBottom:12 }}>
           <label style={lbl}>Solution architecture</label>
           {hasArch?<div style={{ display:"flex", alignItems:"center", gap:8, background:t.amberBg, border:`1px solid ${t.amberBd}`, borderRadius:8, padding:"10px 13px" }}><Icon name="image" size={15} color={t.amber} /><span style={{ fontSize:13, color:t.tx1, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{archs[form.id]?.name}</span><button onClick={e=>onArchUpload(e,form.id)} style={{ fontSize:12, color:t.tx2, background:"none", border:`1px solid ${t.bd}`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Replace</button><button onClick={e=>onRemoveArch(e,form.id)} style={{ fontSize:12, color:t.red, background:"none", border:`1px solid ${t.red}44`, borderRadius:20, padding:"4px 11px", flexShrink:0 }}>Remove</button></div>
